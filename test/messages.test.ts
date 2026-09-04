@@ -34,6 +34,12 @@ describe("directive builders", () => {
     expect(msg.content.toLowerCase()).toMatch(/confirm|propose/);
   });
 
+  it("bootstrap warns that page writes must go through the MCP tool", () => {
+    const msg = buildBootstrapDirective("/abs/skills/bootstrap/SKILL.md", "rust-wiki-cc79119");
+    expect(msg.content).toContain("wiki_content_write");
+    expect(msg.content).toContain("local file writes are invisible");
+  });
+
   it("research nudge is a stable constant", () => {
     expect(RESEARCH_NUDGE).toContain("research");
     expect(RESEARCH_NUDGE).toBe(RESEARCH_NUDGE); // same reference — constant, cache-safe

@@ -18,7 +18,8 @@ export function buildBootstrapDirective(skillPath: string, wikiName?: string | n
       targeting,
       `1. Read the bootstrap skill at \`${skillPath}\``,
       "2. Follow it: call `wiki_info`, review the config and types, read hub pages.",
-      "3. Report a one-line orientation summary, then continue with the user's request.",
+      "3. All page writes MUST use the `wiki_content_write` MCP tool — the agent filesystem and the wiki server filesystem are separate; local file writes are invisible to the server (verify with `wiki_content_read`).",
+      "4. Report a one-line orientation summary, then continue with the user's request.",
     ].join("\n"),
   };
 }
