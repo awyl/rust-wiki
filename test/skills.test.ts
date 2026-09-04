@@ -7,7 +7,7 @@ const SKILLS_DIR = fileURLToPath(new URL("../skills", import.meta.url));
 describe("vendored skills", () => {
   it("contains the three auto-trigger skills", () => {
     for (const name of ["bootstrap", "crystallize", "research"]) {
-      expect(existsSync(`${SKILLS_DIR}/${name}/SKILL.md`), name).toBe(true);
+      expect(existsSync(`${SKILLS_DIR}/${name}/SKILL.md`)).toBe(true);
     }
   });
 
@@ -16,9 +16,9 @@ describe("vendored skills", () => {
     expect(dirs.length).toBeGreaterThanOrEqual(17);
     for (const dir of dirs) {
       const md = readFileSync(`${SKILLS_DIR}/${dir}/SKILL.md`, "utf-8");
-      expect(md).toMatch(/^---\n/, dir);
-      expect(md).toMatch(/^name: /m, dir);
-      expect(md).toMatch(/^description: /m, dir);
+      expect(md).toMatch(/^---\n/);
+      expect(md).toMatch(/^name: /m);
+      expect(md).toMatch(/^description: /m);
     }
   });
 });
