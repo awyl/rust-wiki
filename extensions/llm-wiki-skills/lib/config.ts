@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface CrystallizeConfig {
@@ -27,26 +28,43 @@ export interface LoadResult {
   warning?: string;
 }
 
-export function loadConfig(cwd: string): LoadResult {
-  const path = join(cwd, ".pi", CONFIG_FILENAME);
-  if (!existsSync(path)) return { config: DEFAULT_CONFIG };
+type PartialConfig = Partial<Omit<AutopilotConfig, "crystallize">> & {
+  crystallize?: Partial<CrystallizeConfig>;
+};
+
+/** pi's global agent dir, honoring the documented PI_CODING_AGENT_DIR override. */
+export function globalAgentDir(): string {
+  return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+}
+
+function readLayer(path: string): { raw?: PartialConfig; warning?: string } {
+  if (!existsSync(path)) return {};
   try {
-    const raw = JSON.parse(readFileSync(path, "utf-8")) as Partial<AutopilotConfig>;
-    return {
-      config: {
-        bootstrap: raw.bootstrap ?? DEFAULT_CONFIG.bootstrap,
-        researchNudge: raw.researchNudge ?? DEFAULT_CONFIG.researchNudge,
-        crystallize: {
-          enabled: raw.crystallize?.enabled ?? DEFAULT_CONFIG.crystallize.enabled,
-          everyNRuns: raw.crystallize?.everyNRuns ?? DEFAULT_CONFIG.crystallize.everyNRuns,
-        },
-        wiki: raw.wiki,
-      },
-    };
+    return { raw: JSON.parse(readFileSync(path, "utf-8")) as PartialConfig };
   } catch (err) {
-    return {
-      config: DEFAULT_CONFIG,
-      warning: `[llm-wiki-autopilot] malformed ${path}, using defaults: ${(err as Error).message}`,
-    };
+    return { warning: `[llm-wiki-autopilot] malformed ${path}, ignoring it: ${(err as Error).message}` };
   }
+}
+
+export function loadConfig(cwd: string, globalDir: string = globalAgentDir()): LoadResult {
+  const global = readLayer(join(globalDir, CONFIG_FILENAME));
+  const project = readLayer(join(cwd, ".pi", CONFIG_FILENAME));
+  const warning = [global.warning, project.warning].find(Boolean);
+
+  const pick = <K extends keyof AutopilotConfig>(key: K): AutopilotConfig[K] =>
+    (project.raw?.[key] ?? global.raw?.[key] ?? DEFAULT_CONFIG[key]) as AutopilotConfig[K];
+
+  return {
+    config: {
+      bootstrap: pick("bootstrap"),
+      researchNudge: pick("researchNudge"),
+      crystallize: {
+        enabled: project.raw?.crystallize?.enabled ?? global.raw?.crystallize?.enabled ?? DEFAULT_CONFIG.crystallize.enabled,
+        everyNRuns:
+          project.raw?.crystallize?.everyNRuns ?? global.raw?.crystallize?.everyNRuns ?? DEFAULT_CONFIG.crystallize.everyNRuns,
+      },
+      wiki: pick("wiki"),
+    },
+    warning,
+  };
 }

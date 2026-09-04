@@ -37,6 +37,8 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 
 `wiki` (optional): pin the wiki space this project uses. Unset = default space; if multiple spaces are registered, bootstrap asks once and the agent persists your answer here.
 
+**Global config:** `~/.pi/agent/llm-wiki.json` (honors `PI_CODING_AGENT_DIR`) shares settings across all projects. Layering: defaults ← global ← project, per key; a project file overrides only the keys it sets. A malformed file is skipped with a warning (defaults apply to that layer).
+
 ## Vendored skills
 
 Snapshot of `geronimo-iia/llm-wiki-skills@main`.
