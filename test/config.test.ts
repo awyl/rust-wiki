@@ -35,6 +35,12 @@ describe("loadConfig", () => {
     });
   });
 
+  it("keeps an explicit wiki space name", () => {
+    write(JSON.stringify({ wiki: "research" }));
+    const { config } = loadConfig(dir);
+    expect(config.wiki).toBe("research");
+  });
+
   it("falls back to defaults with a warning on malformed JSON", () => {
     write("{ not json");
     const { config, warning } = loadConfig(dir);

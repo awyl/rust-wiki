@@ -10,6 +10,8 @@ export interface AutopilotConfig {
   bootstrap: boolean;
   researchNudge: boolean;
   crystallize: CrystallizeConfig;
+  /** Wiki space this project targets; unset = use the default space. */
+  wiki?: string;
 }
 
 export const DEFAULT_CONFIG: AutopilotConfig = {
@@ -38,6 +40,7 @@ export function loadConfig(cwd: string): LoadResult {
           enabled: raw.crystallize?.enabled ?? DEFAULT_CONFIG.crystallize.enabled,
           everyNRuns: raw.crystallize?.everyNRuns ?? DEFAULT_CONFIG.crystallize.everyNRuns,
         },
+        wiki: raw.wiki,
       },
     };
   } catch (err) {

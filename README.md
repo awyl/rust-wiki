@@ -30,9 +30,12 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 {
   "bootstrap": true,
   "researchNudge": true,
-  "crystallize": { "enabled": true, "everyNRuns": 8 }
+  "crystallize": { "enabled": true, "everyNRuns": 8 },
+  "wiki": "my-wiki"
 }
 ```
+
+`wiki` (optional): pin the wiki space this project uses. Unset = default space; if multiple spaces are registered, bootstrap asks once and the agent persists your answer here.
 
 ## Vendored skills
 

@@ -4,7 +4,10 @@ export interface DirectiveMessage {
   display: boolean;
 }
 
-export function buildBootstrapDirective(skillPath: string): DirectiveMessage {
+export function buildBootstrapDirective(skillPath: string, wiki?: string): DirectiveMessage {
+  const targeting = wiki
+    ? `0. Target wiki space: \`${wiki}\` — pass \`wiki: "${wiki}"\` on every wiki tool call.`
+    : "0. If `wiki_info` shows multiple wiki spaces, ask the user which wiki space this project uses, then persist the answer by writing `\"wiki\": \"<name>\"` into `.pi/llm-wiki.json`.";
   return {
     customType: "llm-wiki-bootstrap",
     display: true,
@@ -12,6 +15,7 @@ export function buildBootstrapDirective(skillPath: string): DirectiveMessage {
       "## Wiki orientation (bootstrap)",
       "",
       "Before responding to the user, orient to this project's wiki:",
+      targeting,
       `1. Read the bootstrap skill at \`${skillPath}\``,
       "2. Follow it: call `wiki_info`, review the config and types, read hub pages.",
       "3. Report a one-line orientation summary, then continue with the user's request.",

@@ -14,6 +14,17 @@ describe("directive builders", () => {
     expect(msg.content).toContain("wiki_info");
   });
 
+  it("bootstrap targets the configured wiki space when set", () => {
+    const msg = buildBootstrapDirective("/abs/skills/bootstrap/SKILL.md", "research");
+    expect(msg.content).toContain('wiki: "research"');
+  });
+
+  it("bootstrap asks for and persists the wiki space when unset", () => {
+    const msg = buildBootstrapDirective("/abs/skills/bootstrap/SKILL.md");
+    expect(msg.content).toContain("ask the user which wiki space");
+    expect(msg.content).toContain(".pi/llm-wiki.json");
+  });
+
   it("crystallize payload requires user confirmation before writes", () => {
     const msg = buildCrystallizeDirective("/abs/skills/crystallize/SKILL.md");
     expect(msg.customType).toBe("llm-wiki-crystallize");

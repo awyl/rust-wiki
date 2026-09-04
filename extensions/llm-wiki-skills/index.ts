@@ -30,7 +30,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI): void {
     const { config, warning } = loadConfig(ctx.cwd);
     if (warning) ctx.ui.notify(warning, "warning");
     if (config.bootstrap) {
-      await pi.sendMessage(buildBootstrapDirective(skillPath("bootstrap")), {
+      await pi.sendMessage(buildBootstrapDirective(skillPath("bootstrap"), config.wiki), {
         deliverAs: "nextTurn",
       });
     }
