@@ -1,0 +1,146 @@
+---
+name: research
+description: >
+  Search the wiki and synthesize an answer from existing knowledge —
+  full-text search, type filtering, cross-wiki search, graph
+  exploration, and gap identification.
+type: skill
+status: active
+last_updated: "2026-08-20"
+when_to_use: >
+  Answering a question from wiki knowledge, exploring what the wiki
+  knows about a topic, or identifying knowledge gaps.
+tags: [research, search, synthesis]
+owner: jguibert@gmail.com
+compatibility: "llm-wiki >= 1.0.0"
+---
+
+# Research
+
+Search the wiki, read relevant pages, and synthesize an answer from
+existing knowledge. The wiki is the persistent knowledge base — use it
+before generating from scratch.
+
+## Orient
+
+For broad questions ("what does the wiki know about X?") or coverage
+assessment, start with the full wiki map:
+
+```
+wiki_list(format: "llms")
+```
+
+This returns all pages grouped by type with summaries — one call
+instead of multiple searches. Use it when:
+- The question is wide ("what does the wiki cover on LLMs?")
+- You need to assess coverage before deciding whether to ingest new sources
+- You want to understand the wiki's knowledge shape before drilling in
+
+For narrow, specific queries, skip this step and go straight to search.
+
+## Search
+
+BM25 full-text search across `title`, `summary`, `read_when`, `tldr`,
+`tags`, `aliases`, and body text. Results always include facets (`type`, `status`,
+`tags` distributions) — computed from FAST-field keyword indexes at no extra cost:
+
+```
+wiki_search(query: "<topic>")
+```
+
+Filter by page type:
+
+```
+wiki_search(query: "<topic>", type: "concept")
+wiki_search(query: "<topic>", type: "paper,article")
+```
+
+Search across all registered wikis:
+
+```
+wiki_search(query: "<topic>", cross_wiki: true)
+```
+
+Include section index pages (excluded by default):
+
+```
+wiki_search(query: "<topic>", include_sections: true)
+```
+
+## Read results
+
+Read the most relevant pages:
+
+```
+wiki_content_read(uri: "<slug>")
+```
+
+Follow `sources` and `concepts` links in frontmatter to find related
+pages that add context. A concept's `sources` field points to the
+source pages that contributed claims. A source's `concepts` field
+points to the concepts it informs.
+
+Check page freshness with `wiki_history` to assess whether the
+knowledge is current:
+
+```
+wiki_history(slug: "<slug>", limit: 1)
+```
+
+## Discover incoming links (backlinks)
+
+To find what references a page — useful when tracing impact or finding
+dependent concepts — use `backlinks: true`:
+
+```
+wiki_content_read(uri: "<slug>", backlinks: true)
+```
+
+The response includes a `backlinks` array of `{ slug, title }` for every
+page that links to this one. Use this when:
+- You need to understand what depends on or cites a concept
+- You want to find pages to update when a concept changes
+- You are tracing propagation of an idea through the wiki
+
+## Explore relationships
+
+Use the graph to explore how pages connect:
+
+```
+wiki_graph(root: "<slug>", depth: 2)
+```
+
+Filter by relation to trace specific edge types:
+
+```
+wiki_graph(root: "<slug>", relation: "fed-by")
+wiki_graph(root: "<slug>", relation: "depends-on")
+wiki_graph(type: "concept", relation: "depends-on")
+```
+
+This is useful for:
+- Tracing which sources fed a concept (`fed-by`)
+- Finding prerequisite concepts (`depends-on`)
+- Seeing what a source informs (`informs`)
+
+## Synthesize
+
+Compose an answer from the wiki's knowledge:
+
+- Use the `type` facet to suggest broadening or narrowing the search
+  (e.g. "there are also 8 papers on this topic")
+- Cite sources with `wiki://` URIs (e.g. `wiki://concepts/moe`)
+- Distinguish between what concept pages say (synthesized knowledge)
+  and what source pages claim (provenance)
+- Note confidence levels where available — the `confidence` float (0.0–1.0)
+  is returned directly in search results; a value below `0.5` signals the
+  page is provisional or lightly corroborated and its claims should be
+  treated accordingly
+
+## Identify gaps
+
+Report what the wiki does not cover yet. This helps decide whether
+to ingest new sources or crystallize new knowledge.
+
+If the wiki has no relevant pages, say so clearly rather than
+generating an answer from general knowledge.

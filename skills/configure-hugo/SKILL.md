@@ -1,0 +1,134 @@
+---
+name: configure-hugo
+description: >
+  Install and configure llm-wiki-hugo-cms in a wiki repository so it
+  renders as a static Hugo site. Requires Hugo extended ≥ 0.147.0.
+when_to_use: >
+  Use when the user says "set up Hugo", "add Hugo to this wiki",
+  "make this wiki publishable", or "configure Hugo rendering".
+type: skill
+status: active
+last_updated: "2026-05-04"
+tags: [hugo, publishing, configuration]
+owner: jguibert@gmail.com
+compatibility: "llm-wiki >= 1.0.0"
+---
+
+# configure-hugo
+
+Install `llm-wiki-hugo-cms` into an existing wiki repository and configure
+it to render the wiki as a static Hugo site.
+
+## Prerequisites
+
+- Hugo extended ≥ 0.147.0 installed on the user's machine
+- An existing wiki managed by llm-wiki (must have `wiki.toml` and `wiki/`)
+
+## Step 1 — Read the wiki identity and repo path
+
+Resolve the wiki name in order:
+
+1. Read `wiki.toml` from the current working directory — extract the `name` field.
+2. Validate it exists via `wiki_spaces_list(name: "<name>")`.
+3. If `wiki.toml` is absent, unreadable, or the name is not found in `wiki_spaces_list`, ask the user: *"Which wiki should I configure Hugo for?"*
+
+```
+wiki_spaces_list(name: "<name>")
+→ { name: "research", path: "/home/user/wikis/research", ... }
+```
+
+Collect the wiki `name` (needed for `hugo.toml` title) and `path` (the repo
+root — all subsequent file operations use `<path>/site/...`).
+
+Also read `wiki.toml` directly from `<path>/wiki.toml` and extract the
+`wiki_root` field (default: `"wiki"` if absent). Store it — needed in Step 4.
+
+## Step 2 — Check for existing scaffold
+
+The scaffold lives at `<path>/site/hugo.toml`. Check whether that file
+exists directly on the filesystem. If it does, skip to Step 4.
+
+## Step 3 — Install the scaffold
+
+Tell the user to run:
+
+```bash
+cd <wiki-repo-path>
+git clone https://github.com/geronimo-iia/llm-wiki-hugo-cms _hugo_cms
+cp -r _hugo_cms/site .
+cp -r _hugo_cms/templates/.github .
+rm -rf _hugo_cms
+```
+
+Then confirm the files are present before continuing.
+
+## Step 4 — Configure hugo.toml
+
+Read `<repo-path>/site/hugo.toml` directly from disk (repo path from
+`wiki_spaces_list`). Update two fields:
+
+```toml
+baseURL = "https://<github-username>.github.io/<repo-name>/"
+title   = "<wiki name from wiki.toml>"
+```
+
+Write the updated file directly to disk.
+
+If `wiki_root` from Step 1 is not `"wiki"` (e.g. `"content"`, `"docs"`), also
+update the `contentDir` field:
+
+```toml
+contentDir = "<wiki_root>"
+```
+
+The scaffold defaults to `contentDir = "wiki"`. A mismatch means Hugo renders
+nothing — pages simply don't appear. This is the most common setup error for
+wikis using a non-default `wiki_root`.
+
+Everything else — module mounts, excludeFiles, frontmatter mapping,
+taxonomies — is pre-configured and must not be changed.
+
+## Step 5 — Commit the installation
+
+Ask the user to confirm, then commit all new files directly with git:
+
+```bash
+cd <wiki-repo-path>
+git add site/ .github/
+git commit -m "feat: add Hugo site scaffold"
+```
+
+This commits `site/` and `.github/workflows/hugo-deploy.yml` — files that
+live at the repo root, outside `wiki/`, so `wiki_content_commit` cannot
+be used here.
+
+## Step 6 — Preview
+
+Instruct the user:
+
+```bash
+cd <wiki-repo-path>/site
+hugo server --buildDrafts
+```
+
+The URL is printed by Hugo (e.g. `http://localhost:1313/<repo-name>/`).
+
+## Step 7 — Deploy (optional)
+
+If the user wants GitHub Pages deployment:
+
+1. Enable GitHub Pages in the repo settings: Settings → Pages → Source: GitHub Actions
+2. Push to `main` — the workflow at `.github/workflows/hugo-deploy.yml` builds and deploys automatically
+
+## What gets rendered
+
+- All pages in `wiki/` with valid frontmatter
+- Type and tag taxonomy pages
+- Section index pages
+
+## What is excluded
+
+- `inbox/`, `raw/`, `schemas/` directories
+- `.json` and `.txt` files (wiki exports)
+- Pages with `status: draft` or `status: stub` are excluded from production
+  but visible with `hugo server --buildDrafts`
