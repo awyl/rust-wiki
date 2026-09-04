@@ -11,8 +11,6 @@ export interface AutopilotConfig {
   bootstrap: boolean;
   researchNudge: boolean;
   crystallize: CrystallizeConfig;
-  /** Wiki space this project targets; unset = use the default space. */
-  wiki?: string;
 }
 
 export const DEFAULT_CONFIG: AutopilotConfig = {
@@ -63,7 +61,6 @@ export function loadConfig(cwd: string, globalDir: string = globalAgentDir()): L
         everyNRuns:
           project.raw?.crystallize?.everyNRuns ?? global.raw?.crystallize?.everyNRuns ?? DEFAULT_CONFIG.crystallize.everyNRuns,
       },
-      wiki: pick("wiki"),
     },
     warning,
   };

@@ -4,10 +4,10 @@ export interface DirectiveMessage {
   display: boolean;
 }
 
-export function buildBootstrapDirective(skillPath: string, wiki?: string): DirectiveMessage {
-  const targeting = wiki
-    ? `0. Target wiki space: \`${wiki}\` — pass \`wiki: "${wiki}"\` on every wiki tool call.`
-    : "0. If `wiki_info` shows multiple wiki spaces, ask the user which wiki space this project uses, then persist the answer by writing `\"wiki\": \"<name>\"` into `.pi/llm-wiki.json`.";
+export function buildBootstrapDirective(skillPath: string, wikiName?: string | null): DirectiveMessage {
+  const targeting = wikiName
+    ? `0. Ensure wiki space \`${wikiName}\` exists: call \`wiki_spaces_list\`; if it is absent, create it with \`wiki_spaces_create\` — use the parent directory of an existing space's path plus \`/${wikiName}\` as the path (if no space exists yet, ask the user for the parent directory once). Pass \`wiki: "${wikiName}"\` on every wiki tool call this session.`
+    : "0. No project wiki space could be derived from git history — orient against the default space (see `wiki_info`).";
   return {
     customType: "llm-wiki-bootstrap",
     display: true,

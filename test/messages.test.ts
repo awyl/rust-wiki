@@ -14,15 +14,16 @@ describe("directive builders", () => {
     expect(msg.content).toContain("wiki_info");
   });
 
-  it("bootstrap targets the configured wiki space when set", () => {
-    const msg = buildBootstrapDirective("/abs/skills/bootstrap/SKILL.md", "research");
-    expect(msg.content).toContain('wiki: "research"');
+  it("bootstrap ensures the derived space exists and targets it", () => {
+    const msg = buildBootstrapDirective("/abs/skills/bootstrap/SKILL.md", "rust-wiki-cc79119");
+    expect(msg.content).toContain("wiki_spaces_create");
+    expect(msg.content).toContain('wiki: "rust-wiki-cc79119"');
   });
 
-  it("bootstrap asks for and persists the wiki space when unset", () => {
+  it("bootstrap falls back to the default space when no name is derivable", () => {
     const msg = buildBootstrapDirective("/abs/skills/bootstrap/SKILL.md");
-    expect(msg.content).toContain("ask the user which wiki space");
-    expect(msg.content).toContain(".pi/llm-wiki.json");
+    expect(msg.content).toContain("default space");
+    expect(msg.content).not.toContain("wiki_spaces_create");
   });
 
   it("crystallize payload requires user confirmation before writes", () => {

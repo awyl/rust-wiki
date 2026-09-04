@@ -8,6 +8,7 @@ import {
   buildCrystallizeDirective,
   RESEARCH_NUDGE,
 } from "./lib/messages.js";
+import { deriveWikiName } from "./lib/wikiName.js";
 
 export default function llmWikiAutopilot(pi: ExtensionAPI): void {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -30,7 +31,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI): void {
     const { config, warning } = loadConfig(ctx.cwd);
     if (warning) ctx.ui.notify(warning, "warning");
     if (config.bootstrap) {
-      await pi.sendMessage(buildBootstrapDirective(skillPath("bootstrap"), config.wiki), {
+      await pi.sendMessage(buildBootstrapDirective(skillPath("bootstrap"), deriveWikiName(ctx.cwd)), {
         deliverAs: "nextTurn",
       });
     }
