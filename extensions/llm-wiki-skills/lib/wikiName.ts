@@ -12,11 +12,13 @@ export function deriveWikiName(cwd: string): string | null {
   try {
     hash = execFileSync("git", ["-C", cwd, "rev-list", "--max-parents=0", "HEAD"], {
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
     })
       .trim()
       .split("\n")[0];
     subject = execFileSync("git", ["-C", cwd, "log", "-1", "--format=%s", hash], {
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim();
   } catch {
     return null;
