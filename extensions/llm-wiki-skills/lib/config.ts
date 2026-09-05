@@ -10,12 +10,15 @@ export interface CrystallizeConfig {
 export interface AutopilotConfig {
   bootstrap: boolean;
   researchNudge: boolean;
+  /** Render directive text in the UI. False = agent still receives it, silently. */
+  display: boolean;
   crystallize: CrystallizeConfig;
 }
 
 export const DEFAULT_CONFIG: AutopilotConfig = {
   bootstrap: true,
   researchNudge: true,
+  display: true,
   crystallize: { enabled: true, everyNRuns: 8 },
 };
 
@@ -56,6 +59,7 @@ export function loadConfig(cwd: string, globalDir: string = globalAgentDir()): L
     config: {
       bootstrap: pick("bootstrap"),
       researchNudge: pick("researchNudge"),
+      display: pick("display"),
       crystallize: {
         enabled: project.raw?.crystallize?.enabled ?? global.raw?.crystallize?.enabled ?? DEFAULT_CONFIG.crystallize.enabled,
         everyNRuns:

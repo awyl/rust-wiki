@@ -36,6 +36,7 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       bootstrap: false,
       researchNudge: true,
+      display: true,
       crystallize: { enabled: true, everyNRuns: 3 },
     });
   });
@@ -66,6 +67,7 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       bootstrap: false,
       researchNudge: true,
+      display: true,
       crystallize: { enabled: false, everyNRuns: 2 },
     });
   });

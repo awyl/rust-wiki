@@ -18,6 +18,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI): void {
   const here = dirname(fileURLToPath(import.meta.url));
   const skillsDir = join(here, "..", "..", "skills");
   const skillPath = (name: string) => join(skillsDir, name, "SKILL.md");
+  const workerPromptPath = join(here, "worker-crystallize.md");
 
   if (!existsSync(skillsDir)) {
     // Hooks still register: skills may load from another pi skill location.
@@ -37,7 +38,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI): void {
     const { config, warning } = loadConfig(ctx.cwd);
     if (warning) ctx.ui.notify(warning, "warning");
     if (config.bootstrap) {
-      await pi.sendMessage(buildBootstrapDirective(wikiName), {
+      await pi.sendMessage(buildBootstrapDirective(wikiName, config.display), {
         deliverAs: "nextTurn",
       });
     }
@@ -56,9 +57,12 @@ export default function llmWikiAutopilot(pi: ExtensionAPI): void {
     settledRuns += 1;
     if (settledRuns >= config.crystallize.everyNRuns) {
       crystallizeProposed = true;
-      await pi.sendMessage(buildCrystallizeDirective(skillPath("crystallize"), wikiName), {
-        deliverAs: "nextTurn",
-      });
+      await pi.sendMessage(
+        buildCrystallizeDirective(skillPath("crystallize"), workerPromptPath, wikiName, config.display),
+        {
+          deliverAs: "nextTurn",
+        },
+      );
     }
   });
 }
