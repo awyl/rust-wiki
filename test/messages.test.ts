@@ -62,6 +62,11 @@ describe("directive builders", () => {
     expect(msg.content).toContain("wiki_lint");
   });
 
+  it("crystallize worker rebuilds the index after ingest (engine auto_rebuild not wired into request path)", () => {
+    const msg = buildCrystallizeDirective("/abs/skills/crystallize/SKILL.md", "rust-wiki-cc79119");
+    expect(msg.content).toContain("wiki_index_rebuild");
+  });
+
   it("crystallize reports a log path for the worker output", () => {
     const msg = buildCrystallizeDirective("/abs/skills/crystallize/SKILL.md", "rust-wiki-cc79119");
     expect(msg.content).toContain("/tmp/llm-wiki-crystallize-rust-wiki-cc79119.log");

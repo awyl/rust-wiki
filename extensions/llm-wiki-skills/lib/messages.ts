@@ -63,6 +63,7 @@ export function buildCrystallizeDirective(skillPath: string, wikiName?: string |
       wikiScope,
       "- AUTO-WRITE: do not propose or wait for user confirmation — write pages directly, tagging each with a calibrated confidence value.",
       "- Full flow: map (wiki_list format llms), extraction plan, wiki_content_new + wiki_content_write per page, wiki_ingest (dry run, then real), wiki_lint (broken-link,orphan), verify via wiki_content_read.",
+      "- After ingest, run `wiki_index_rebuild` for the target wiki so the next session's bootstrap opens a fresh index (ingest commits advance HEAD past the index stamp; the engine's auto_rebuild is not wired into the request path).",
       "- Respect the accumulation contract when updating existing pages.",
       "- Finish with a summary printed to stdout: pages written (slugs + confidence), lint result, open questions.",
       "```",

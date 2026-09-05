@@ -44,13 +44,13 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 
 The llm-wiki engine commits every page write (`ingest.auto_commit`), which advances the wiki's git HEAD. The search index is stamped against that HEAD, so after any session that wrote pages, the next session's bootstrap reports `index_status: degraded` — and search/lint results are unreliable until a rebuild runs.
 
-One-time fix (global server setting — applies to every wiki space, per-space override is not supported):
+One-time setting (global server setting — applies to every wiki space, per-space override is not supported):
 
 ```
 wiki_config(action: "set", global: true, key: "index.auto_rebuild", value: "true")
 ```
 
-With it on, the engine rebuilds automatically when the index lags HEAD (observed: ~33 ms for ~12 pages), degraded warnings stop recurring, and the autopilot's lean bootstrap settles at a single `wiki_info` call per session.
+**Status (2026-09-05):** verified a no-op in llm-wiki 1.0.0 — even with the setting loaded by a freshly restarted engine, the index is not rebuilt on startup, query, or ingest. Harmless to enable (it may be implemented in a later engine version), but do not rely on it: search results stay correct while the status reads "degraded" (it is a stamp/status artifact, not stale data), and the autopilot's lean bootstrap self-heals with a `wiki_index_rebuild` call whenever it finds the index degraded (~33-53 ms at ~12 pages).
 
 ## Vendored skills
 
