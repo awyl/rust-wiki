@@ -5,6 +5,8 @@ import { join } from "node:path";
 export interface CrystallizeConfig {
   enabled: boolean;
   everyNRuns: number;
+  /** When true, crystallize fires once per session (old behavior). Default: re-arms after each fire. */
+  oncePerSession: boolean;
 }
 
 export interface AutopilotConfig {
@@ -12,6 +14,8 @@ export interface AutopilotConfig {
   researchNudge: boolean;
   /** Render directive text in the UI. False = agent still receives it, silently. */
   display: boolean;
+  /** Parent directory for new wiki spaces — enables unattended space creation in bootstrap. */
+  wikiRoot: string;
   crystallize: CrystallizeConfig;
 }
 
@@ -19,7 +23,8 @@ export const DEFAULT_CONFIG: AutopilotConfig = {
   bootstrap: true,
   researchNudge: true,
   display: true,
-  crystallize: { enabled: true, everyNRuns: 8 },
+  wikiRoot: "",
+  crystallize: { enabled: true, everyNRuns: 8, oncePerSession: false },
 };
 
 export const CONFIG_FILENAME = "llm-wiki.json";
@@ -60,10 +65,15 @@ export function loadConfig(cwd: string, globalDir: string = globalAgentDir()): L
       bootstrap: pick("bootstrap"),
       researchNudge: pick("researchNudge"),
       display: pick("display"),
+      wikiRoot: pick("wikiRoot"),
       crystallize: {
         enabled: project.raw?.crystallize?.enabled ?? global.raw?.crystallize?.enabled ?? DEFAULT_CONFIG.crystallize.enabled,
         everyNRuns:
           project.raw?.crystallize?.everyNRuns ?? global.raw?.crystallize?.everyNRuns ?? DEFAULT_CONFIG.crystallize.everyNRuns,
+        oncePerSession:
+          project.raw?.crystallize?.oncePerSession ??
+          global.raw?.crystallize?.oncePerSession ??
+          DEFAULT_CONFIG.crystallize.oncePerSession,
       },
     },
     warning,

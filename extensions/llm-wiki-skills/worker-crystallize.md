@@ -27,3 +27,7 @@ skill path, and the wiki space.
    into the request path).
 4. Finish with a summary printed to stdout: pages written (slugs +
    confidence), lint result, open questions.
+5. Then notify the main session: use the `intercom` tool with
+   `action: "send"`, `cwd:` your own working directory, and a one-line
+   message — `Crystallize complete: <N> pages (<slugs>); lint: <n> errors;
+   log: <log path>`. Fire-and-forget; do not wait for a reply.

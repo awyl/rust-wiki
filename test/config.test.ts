@@ -37,8 +37,18 @@ describe("loadConfig", () => {
       bootstrap: false,
       researchNudge: true,
       display: true,
-      crystallize: { enabled: true, everyNRuns: 3 },
+      wikiRoot: "",
+      crystallize: { enabled: true, everyNRuns: 3, oncePerSession: false },
     });
+  });
+
+  it("picks up wikiRoot and oncePerSession from config layers", () => {
+    writeGlobal(JSON.stringify({ wikiRoot: "/data" }), join(dir, "global"));
+    write(JSON.stringify({ crystallize: { oncePerSession: true } }));
+    const { config } = loadConfig(dir, join(dir, "global"));
+    expect(config.wikiRoot).toBe("/data");
+    expect(config.crystallize.oncePerSession).toBe(true);
+    expect(config.crystallize.everyNRuns).toBe(8); // default preserved
   });
 
   it("falls back to defaults with a warning on malformed JSON", () => {
@@ -68,7 +78,8 @@ describe("loadConfig", () => {
       bootstrap: false,
       researchNudge: true,
       display: true,
-      crystallize: { enabled: false, everyNRuns: 2 },
+      wikiRoot: "",
+      crystallize: { enabled: false, everyNRuns: 2, oncePerSession: false },
     });
   });
 

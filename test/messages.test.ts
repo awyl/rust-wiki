@@ -53,6 +53,12 @@ describe("directive builders", () => {
     expect(msg.content).not.toContain("wiki_spaces_create");
   });
 
+  it("wikiRoot enables unattended space creation (no user ask)", () => {
+    const msg = buildBootstrapDirective("rust-wiki-cc79119", true, "/data");
+    expect(msg.content).toContain("`/data/rust-wiki-cc79119`");
+    expect(msg.content).not.toContain("ask the user");
+  });
+
   it("crystallize payload delegates to a headless worker instead of working inline", () => {
     const msg = buildCrystallizeDirective(SKILL_PATH, WORKER_PROMPT_PATH, "rust-wiki-cc79119");
     expect(msg.customType).toBe("llm-wiki-crystallize");
@@ -88,6 +94,7 @@ describe("directive builders", () => {
     expect(file).toContain("wiki_ingest");
     expect(file).toContain("wiki_lint");
     expect(file).toContain("accumulation contract");
+    expect(file).toContain("intercom");
   });
 
   it("research nudge is a stable constant", () => {

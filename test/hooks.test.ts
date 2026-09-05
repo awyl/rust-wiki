@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { RESEARCH_NUDGE } from "../extensions/llm-wiki-skills/lib/messages.js";
@@ -56,15 +59,32 @@ describe("extension hooks", () => {
     expect(second).toBeUndefined();
   });
 
-  it("agent_settled proposes crystallize once at the threshold", async () => {
+  it("agent_settled fires at the threshold and re-arms (recurring by default)", async () => {
     const { handlers, sent } = await loadExtension();
     const handler = handlers.get("agent_settled")!;
     const ctx = fakeCtx();
-    for (let i = 0; i < 8; i++) await handler({}, ctx);
+    for (let i = 0; i < 16; i++) await handler({}, ctx);
     const crystallize = sent.filter((s) => s.message.customType === "llm-wiki-crystallize");
-    expect(crystallize).toHaveLength(1);
+    expect(crystallize).toHaveLength(2); // fires at runs 8 and 16
     expect(crystallize[0].message.content).toContain("pi -p");
-    expect(sent.filter((s) => s.message.customType === "llm-wiki-crystallize")).toHaveLength(1);
+  });
+
+  it("oncePerSession pins crystallize to the first threshold only", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hooks-config-"));
+    mkdirSync(join(dir, ".pi"), { recursive: true });
+    writeFileSync(
+      join(dir, ".pi", "llm-wiki.json"),
+      JSON.stringify({ crystallize: { enabled: true, everyNRuns: 8, oncePerSession: true } }),
+    );
+    try {
+      const { handlers, sent } = await loadExtension();
+      await handlers.get("session_start")!({ reason: "startup" }, fakeCtx(dir));
+      const settled = handlers.get("agent_settled")!;
+      for (let i = 0; i < 24; i++) await settled({}, fakeCtx(dir));
+      expect(sent.filter((s) => s.message.customType === "llm-wiki-crystallize")).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("env guard disables all hooks (prevents worker recursion)", async () => {

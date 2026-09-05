@@ -9,7 +9,7 @@ Autonomous [llm-wiki-skills](https://github.com/geronimo-iia/llm-wiki-skills) tr
 |---------|------|--------|
 | Bootstrap | `session_start` | Queues a lean directive: agent calls `wiki_info` once — creates the git-derived space if missing, rebuilds the index if degraded. No orientation; research/crystallize orient themselves when invoked |
 | Research nudge | every turn | Static 3-line system-prompt footer routing knowledge questions to the `research` skill (cache-safe) |
-| Crystallize | after 8 settled agent runs (once per session) | Queues a 4-line delegation directive: main agent writes its session extraction to a temp file and fires one detached headless `pi -p` worker (`LLM_WIKI_AUTOPILOT_DISABLE=1`). Static worker instructions live in `worker-crystallize.md` inside the package — directives stay tiny. Worker auto-writes, ingests, rebuilds the index, logs to `/tmp/llm-wiki-crystallize-<wiki>.log` |
+| Crystallize | every 8 settled agent runs (re-arms; `oncePerSession` pins to first) | Queues a 4-line delegation directive: main agent writes its session extraction to a temp file and fires one detached headless `pi -p` worker (`LLM_WIKI_AUTOPILOT_DISABLE=1`). Static worker instructions live in `worker-crystallize.md` inside the package — directives stay tiny. Worker auto-writes, ingests, rebuilds the index, logs to `/tmp/llm-wiki-crystallize-<wiki>.log`, and intercom-sends a completion line to the main session |
 
 All 17 upstream skills are vendored and load natively — `/skill:research`, `/skill:ingest`, `/skill:lint`, … work without the extension.
 
@@ -31,11 +31,16 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
   "bootstrap": true,
   "researchNudge": true,
   "display": true,
-  "crystallize": { "enabled": true, "everyNRuns": 8 }
+  "wikiRoot": "/data",
+  "crystallize": { "enabled": true, "everyNRuns": 8, "oncePerSession": false }
 }
 ```
 
 **`display`:** set to `false` to stop directive text rendering in the UI — the agent still receives it silently (you'll just see its one-line report and the background worker command).
+
+**`wikiRoot`:** parent directory used to create new wiki spaces — bootstrap then creates the space unattended instead of asking you for the parent directory. Leave unset to keep the ask-once behavior.
+
+**`crystallize.oncePerSession`:** default `false` — crystallize re-arms and fires again after every `everyNRuns` settled runs. Set `true` for the old fire-once-per-session behavior.
 
 **Wiki space naming:** derived per project from git — `<first-commit-subject>-<short-hash>`, e.g. `init rust-wiki` → `rust-wiki-cc79119`. Bootstrap creates the space if it doesn't exist, then scopes every wiki call to it. Not a git repo (or no commits) → the default space is used.
 
