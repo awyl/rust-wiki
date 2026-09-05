@@ -36,7 +36,7 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       bootstrap: false,
       researchNudge: true,
-      display: true,
+      display: false,
       wikiRoot: "",
       crystallize: { enabled: true, everyNRuns: 3, oncePerSession: false },
     });
@@ -77,7 +77,7 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       bootstrap: false,
       researchNudge: true,
-      display: true,
+      display: false,
       wikiRoot: "",
       crystallize: { enabled: false, everyNRuns: 2, oncePerSession: false },
     });

@@ -7,7 +7,7 @@ Autonomous [llm-wiki-skills](https://github.com/geronimo-iia/llm-wiki-skills) tr
 
 | Trigger | When | Effect |
 |---------|------|--------|
-| Bootstrap | `session_start` | Queues a lean directive: agent calls `wiki_info` once — creates the git-derived space if missing, rebuilds the index if degraded. No orientation; research/crystallize orient themselves when invoked |
+| Bootstrap | `session_start` | **Fully automated, zero agent turns**: fires a detached headless worker (`bootstrap-worker.md`) that calls `wiki_info` once — creates the git-derived space if missing (unattended when `wikiRoot` is set), rebuilds the index if degraded, intercom-sends a one-line receipt. Wiki scoping for the session rides the research nudge footer (session-static, cache-safe) |
 | Research nudge | every turn | Static 3-line system-prompt footer routing knowledge questions to the `research` skill (cache-safe) |
 | Crystallize | every 8 settled agent runs (re-arms; `oncePerSession` pins to first) | Queues a 4-line delegation directive that **auto-triggers an idle agent** (`followUp` + `triggerTurn` — no user nudge needed): main agent writes its session extraction to a temp file and fires one detached headless `pi -p` worker (`LLM_WIKI_AUTOPILOT_DISABLE=1`). Static worker instructions live in `worker-crystallize.md` inside the package — directives stay tiny. Worker auto-writes, ingests, rebuilds the index, logs to `/tmp/llm-wiki-crystallize-<wiki>.log`, and intercom-sends a completion line to the main session |
 
@@ -36,7 +36,7 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 }
 ```
 
-**`display`:** set to `false` to stop directive text rendering in the UI — the agent still receives it silently (you'll just see its one-line report and the background worker command).
+**`display`:** default `false` — directive text (crystallize) is delivered silently; you'll see the agent's one-line report and the background worker command. Set `true` to render directive text in the UI.
 
 **`wikiRoot`:** parent directory used to create new wiki spaces — bootstrap then creates the space unattended instead of asking you for the parent directory. Leave unset to keep the ask-once behavior.
 

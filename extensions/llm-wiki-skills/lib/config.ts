@@ -22,7 +22,7 @@ export interface AutopilotConfig {
 export const DEFAULT_CONFIG: AutopilotConfig = {
   bootstrap: true,
   researchNudge: true,
-  display: true,
+  display: false,
   wikiRoot: "",
   crystallize: { enabled: true, everyNRuns: 8, oncePerSession: false },
 };

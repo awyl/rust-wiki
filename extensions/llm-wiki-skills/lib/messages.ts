@@ -5,27 +5,23 @@ export interface DirectiveMessage {
 }
 
 /**
- * Lean bootstrap: one `wiki_info` call — ensure the git-derived space
- * exists and the index is healthy, then get out of the way. Static
- * worker instructions live in files; directives stay tiny to keep the
- * dialog and the main session's context small.
+ * Research nudge footer for the system prompt. Session-static by design:
+ * the wiki name is derived once at session_start, so the footer is
+ * byte-identical every turn within a session — provider prompt cache
+ * stays stable. See prompt-cache-safety in the wiki.
  */
-export function buildBootstrapDirective(wikiName?: string | null, display = true, wikiRoot = ""): DirectiveMessage {
-  const createHint = wikiRoot
-    ? `path = \`${wikiRoot.replace(/\/+$/, "")}/${wikiName}\``
-    : `path = the parent directory of an existing space's path plus \`/${wikiName}\` (if no space exists yet, ask the user for the parent directory once)`;
-  const targeting = wikiName
-    ? `Call \`wiki_info\` once: if wiki space \`${wikiName}\` is absent from its spaces list, create it with \`wiki_spaces_create\` (${createHint}); if its index_status is degraded, recover it with \`wiki_index_rebuild\`. Pass \`wiki: "${wikiName}"\` on every wiki tool call this session.`
-    : "No project wiki space could be derived from git history — skip setup; use the default space (see `wiki_info`) if you need wiki tools.";
-  return {
-    customType: "llm-wiki-bootstrap",
-    display,
-    content: [
-      "## Wiki bootstrap (lean)",
-      targeting,
-      "Do NOT orient further — research and crystallize skills orient themselves when invoked. Continue with the user's request.",
-    ].join("\n"),
-  };
+export function buildResearchNudge(wikiName?: string | null): string {
+  const lines = [
+    "",
+    "## Wiki knowledge",
+    "A wiki MCP server is connected to this session. When a question might be answered from wiki knowledge, use the `research` skill: read its SKILL.md, then `wiki_search` / `wiki_content_read` before answering from memory alone.",
+  ];
+  if (wikiName) {
+    lines.push(
+      `Project wiki space: \`${wikiName}\` — pass \`wiki: "${wikiName}"\` on every wiki tool call. A background worker already ensured the space exists and the index is healthy.`,
+    );
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -56,9 +52,3 @@ export function buildCrystallizeDirective(
     ].join("\n"),
   };
 }
-
-export const RESEARCH_NUDGE = [
-  "",
-  "## Wiki knowledge",
-  "A wiki MCP server is connected to this session. When a question might be answered from wiki knowledge, use the `research` skill: read its SKILL.md, then `wiki_search` / `wiki_content_read` before answering from memory alone.",
-].join("\n");
