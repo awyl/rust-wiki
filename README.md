@@ -40,6 +40,18 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 
 **Global config:** `~/.pi/agent/llm-wiki.json` (honors `PI_CODING_AGENT_DIR`) shares settings across all projects. Layering: defaults ← global ← project, per key; a project file overrides only the keys it sets. A malformed file is skipped with a warning (defaults apply to that layer).
 
+## Recommended: turn on wiki auto-rebuild
+
+The llm-wiki engine commits every page write (`ingest.auto_commit`), which advances the wiki's git HEAD. The search index is stamped against that HEAD, so after any session that wrote pages, the next session's bootstrap reports `index_status: degraded` — and search/lint results are unreliable until a rebuild runs.
+
+One-time fix (global server setting — applies to every wiki space, per-space override is not supported):
+
+```
+wiki_config(action: "set", global: true, key: "index.auto_rebuild", value: "true")
+```
+
+With it on, the engine rebuilds automatically when the index lags HEAD (observed: ~33 ms for ~12 pages), degraded warnings stop recurring, and the autopilot's lean bootstrap settles at a single `wiki_info` call per session.
+
 ## Vendored skills
 
 Snapshot of `geronimo-iia/llm-wiki-skills@main`.
