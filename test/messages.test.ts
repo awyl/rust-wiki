@@ -47,6 +47,12 @@ describe("directive builders", () => {
     expect(msg.content).toContain("/abs/skills/crystallize/SKILL.md");
   });
 
+  it("crystallize directive makes the main agent embed its session extraction", () => {
+    const msg = buildCrystallizeDirective("/abs/skills/crystallize/SKILL.md", "rust-wiki-cc79119");
+    expect(msg.content).toContain("EXTRACTED_KNOWLEDGE");
+    expect(msg.content).toContain("cannot see this session");
+  });
+
   it("crystallize worker targets the derived wiki and runs unattended", () => {
     const msg = buildCrystallizeDirective("/abs/skills/crystallize/SKILL.md", "rust-wiki-cc79119");
     expect(msg.content).toContain('wiki: "rust-wiki-cc79119"');
