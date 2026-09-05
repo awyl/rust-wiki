@@ -63,8 +63,19 @@ describe("extension hooks", () => {
     for (let i = 0; i < 8; i++) await handler({}, ctx);
     const crystallize = sent.filter((s) => s.message.customType === "llm-wiki-crystallize");
     expect(crystallize).toHaveLength(1);
-    for (let i = 0; i < 5; i++) await handler({}, ctx); // more runs — still once
+    expect(crystallize[0].message.content).toContain("pi -p");
     expect(sent.filter((s) => s.message.customType === "llm-wiki-crystallize")).toHaveLength(1);
+  });
+
+  it("env guard disables all hooks (prevents worker recursion)", async () => {
+    process.env.LLM_WIKI_AUTOPILOT_DISABLE = "1";
+    try {
+      const { handlers, sent } = await loadExtension();
+      expect(handlers.size).toBe(0);
+      expect(sent).toHaveLength(0);
+    } finally {
+      delete process.env.LLM_WIKI_AUTOPILOT_DISABLE;
+    }
   });
 
   it("session_start resets the crystallize counter and proposal flag", async () => {

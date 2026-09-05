@@ -11,6 +11,10 @@ import {
 import { deriveWikiName } from "./lib/wikiName.js";
 
 export default function llmWikiAutopilot(pi: ExtensionAPI): void {
+  // Headless workers spawned by the crystallize directive set this to avoid
+  // recursive autopilot firing (bootstrap/crystallize) inside the worker.
+  if (process.env.LLM_WIKI_AUTOPILOT_DISABLE) return;
+
   const here = dirname(fileURLToPath(import.meta.url));
   const skillsDir = join(here, "..", "..", "skills");
   const skillPath = (name: string) => join(skillsDir, name, "SKILL.md");
@@ -24,14 +28,16 @@ export default function llmWikiAutopilot(pi: ExtensionAPI): void {
 
   let settledRuns = 0;
   let crystallizeProposed = false;
+  let wikiName: string | null = null;
 
   pi.on("session_start", async (_event, ctx) => {
     settledRuns = 0;
     crystallizeProposed = false;
+    wikiName = deriveWikiName(ctx.cwd);
     const { config, warning } = loadConfig(ctx.cwd);
     if (warning) ctx.ui.notify(warning, "warning");
     if (config.bootstrap) {
-      await pi.sendMessage(buildBootstrapDirective(skillPath("bootstrap"), deriveWikiName(ctx.cwd)), {
+      await pi.sendMessage(buildBootstrapDirective(wikiName), {
         deliverAs: "nextTurn",
       });
     }
@@ -50,7 +56,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI): void {
     settledRuns += 1;
     if (settledRuns >= config.crystallize.everyNRuns) {
       crystallizeProposed = true;
-      await pi.sendMessage(buildCrystallizeDirective(skillPath("crystallize")), {
+      await pi.sendMessage(buildCrystallizeDirective(skillPath("crystallize"), wikiName), {
         deliverAs: "nextTurn",
       });
     }

@@ -6,38 +6,59 @@ import {
 } from "../extensions/llm-wiki-skills/lib/messages.js";
 
 describe("directive builders", () => {
-  it("bootstrap payload carries customType, display and the skill path", () => {
-    const msg = buildBootstrapDirective("/abs/skills/bootstrap/SKILL.md");
+  it("lean bootstrap payload carries customType and display", () => {
+    const msg = buildBootstrapDirective("rust-wiki-cc79119");
     expect(msg.customType).toBe("llm-wiki-bootstrap");
     expect(msg.display).toBe(true);
-    expect(msg.content).toContain("/abs/skills/bootstrap/SKILL.md");
-    expect(msg.content).toContain("wiki_info");
   });
 
-  it("bootstrap ensures the derived space exists and targets it", () => {
-    const msg = buildBootstrapDirective("/abs/skills/bootstrap/SKILL.md", "rust-wiki-cc79119");
+  it("lean bootstrap ensures the derived space exists and targets it", () => {
+    const msg = buildBootstrapDirective("rust-wiki-cc79119");
+    expect(msg.content).toContain("wiki_spaces_list");
     expect(msg.content).toContain("wiki_spaces_create");
     expect(msg.content).toContain('wiki: "rust-wiki-cc79119"');
   });
 
-  it("bootstrap falls back to the default space when no name is derivable", () => {
-    const msg = buildBootstrapDirective("/abs/skills/bootstrap/SKILL.md");
+  it("lean bootstrap keeps index health in the critical path", () => {
+    const msg = buildBootstrapDirective("rust-wiki-cc79119");
+    expect(msg.content).toContain("wiki_info");
+    expect(msg.content).toContain("wiki_index_rebuild");
+  });
+
+  it("lean bootstrap skips deep orientation", () => {
+    const msg = buildBootstrapDirective("rust-wiki-cc79119");
+    expect(msg.content).not.toContain("SKILL.md");
+    expect(msg.content).not.toContain("hub");
+    expect(msg.content).not.toContain("wiki_schema");
+  });
+
+  it("lean bootstrap falls back to the default space when no name is derivable", () => {
+    const msg = buildBootstrapDirective(null);
     expect(msg.content).toContain("default space");
     expect(msg.content).not.toContain("wiki_spaces_create");
   });
 
-  it("crystallize payload requires user confirmation before writes", () => {
-    const msg = buildCrystallizeDirective("/abs/skills/crystallize/SKILL.md");
+  it("crystallize payload delegates to a headless worker instead of working inline", () => {
+    const msg = buildCrystallizeDirective("/abs/skills/crystallize/SKILL.md", "rust-wiki-cc79119");
     expect(msg.customType).toBe("llm-wiki-crystallize");
     expect(msg.display).toBe(true);
+    expect(msg.content).toContain("pi -p");
+    expect(msg.content).toContain("LLM_WIKI_AUTOPILOT_DISABLE");
     expect(msg.content).toContain("/abs/skills/crystallize/SKILL.md");
-    expect(msg.content.toLowerCase()).toMatch(/confirm|propose/);
   });
 
-  it("bootstrap warns that page writes must go through the MCP tool", () => {
-    const msg = buildBootstrapDirective("/abs/skills/bootstrap/SKILL.md", "rust-wiki-cc79119");
-    expect(msg.content).toContain("wiki_content_write");
-    expect(msg.content).toContain("local file writes are invisible");
+  it("crystallize worker targets the derived wiki and runs unattended", () => {
+    const msg = buildCrystallizeDirective("/abs/skills/crystallize/SKILL.md", "rust-wiki-cc79119");
+    expect(msg.content).toContain('wiki: "rust-wiki-cc79119"');
+    expect(msg.content).toContain("AUTO-WRITE");
+    expect(msg.content).not.toMatch(/wait for confirmation/i);
+    expect(msg.content).toContain("wiki_ingest");
+    expect(msg.content).toContain("wiki_lint");
+  });
+
+  it("crystallize reports a log path for the worker output", () => {
+    const msg = buildCrystallizeDirective("/abs/skills/crystallize/SKILL.md", "rust-wiki-cc79119");
+    expect(msg.content).toContain("/tmp/llm-wiki-crystallize-rust-wiki-cc79119.log");
   });
 
   it("research nudge is a stable constant", () => {
