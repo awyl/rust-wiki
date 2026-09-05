@@ -69,6 +69,14 @@ describe("extension hooks", () => {
     expect(crystallize[0].message.content).toContain("pi -p");
   });
 
+  it("crystallize delivery auto-triggers an idle agent (followUp + triggerTurn)", async () => {
+    const { handlers, sent } = await loadExtension();
+    const handler = handlers.get("agent_settled")!;
+    for (let i = 0; i < 8; i++) await handler({}, fakeCtx());
+    const crystallize = sent.find((s) => s.message.customType === "llm-wiki-crystallize");
+    expect(crystallize!.options).toEqual({ deliverAs: "followUp", triggerTurn: true });
+  });
+
   it("oncePerSession pins crystallize to the first threshold only", async () => {
     const dir = mkdtempSync(join(tmpdir(), "hooks-config-"));
     mkdirSync(join(dir, ".pi"), { recursive: true });

@@ -57,9 +57,9 @@ export default function llmWikiAutopilot(pi: ExtensionAPI): void {
     crystallizeProposed = true;
     await pi.sendMessage(
       buildCrystallizeDirective(skillPath("crystallize"), workerPromptPath, wikiName, config.display),
-      {
-        deliverAs: "nextTurn",
-      },
+      // followUp + triggerTurn: if the agent is idle, start a run immediately
+      // so the directive executes instead of waiting for the user's next message.
+      { deliverAs: "followUp", triggerTurn: true },
     );
   });
 }

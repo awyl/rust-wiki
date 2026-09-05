@@ -9,7 +9,7 @@ Autonomous [llm-wiki-skills](https://github.com/geronimo-iia/llm-wiki-skills) tr
 |---------|------|--------|
 | Bootstrap | `session_start` | Queues a lean directive: agent calls `wiki_info` once — creates the git-derived space if missing, rebuilds the index if degraded. No orientation; research/crystallize orient themselves when invoked |
 | Research nudge | every turn | Static 3-line system-prompt footer routing knowledge questions to the `research` skill (cache-safe) |
-| Crystallize | every 8 settled agent runs (re-arms; `oncePerSession` pins to first) | Queues a 4-line delegation directive: main agent writes its session extraction to a temp file and fires one detached headless `pi -p` worker (`LLM_WIKI_AUTOPILOT_DISABLE=1`). Static worker instructions live in `worker-crystallize.md` inside the package — directives stay tiny. Worker auto-writes, ingests, rebuilds the index, logs to `/tmp/llm-wiki-crystallize-<wiki>.log`, and intercom-sends a completion line to the main session |
+| Crystallize | every 8 settled agent runs (re-arms; `oncePerSession` pins to first) | Queues a 4-line delegation directive that **auto-triggers an idle agent** (`followUp` + `triggerTurn` — no user nudge needed): main agent writes its session extraction to a temp file and fires one detached headless `pi -p` worker (`LLM_WIKI_AUTOPILOT_DISABLE=1`). Static worker instructions live in `worker-crystallize.md` inside the package — directives stay tiny. Worker auto-writes, ingests, rebuilds the index, logs to `/tmp/llm-wiki-crystallize-<wiki>.log`, and intercom-sends a completion line to the main session |
 
 All 17 upstream skills are vendored and load natively — `/skill:research`, `/skill:ingest`, `/skill:lint`, … work without the extension.
 
