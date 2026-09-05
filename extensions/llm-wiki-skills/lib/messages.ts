@@ -11,7 +11,7 @@ export interface DirectiveMessage {
  */
 export function buildBootstrapDirective(wikiName?: string | null): DirectiveMessage {
   const targeting = wikiName
-    ? `0. Ensure wiki space \`${wikiName}\` exists: call \`wiki_spaces_list\`; if it is absent, create it with \`wiki_spaces_create\` — use the parent directory of an existing space's path plus \`/${wikiName}\` as the path (if no space exists yet, ask the user for the parent directory once). Pass \`wiki: "${wikiName}"\` on every wiki tool call this session.`
+    ? `0. Call \`wiki_info\` once: if wiki space \`${wikiName}\` is absent from its spaces list, create it with \`wiki_spaces_create\` — path = the parent directory of an existing space's path plus \`/${wikiName}\` (if no space exists yet, ask the user for the parent directory once); if its index_status is degraded, recover it with \`wiki_index_rebuild\`. Pass \`wiki: "${wikiName}"\` on every wiki tool call this session.`
     : "0. No project wiki space could be derived from git history — skip setup; use the default space (see `wiki_info`) if you need wiki tools.";
   return {
     customType: "llm-wiki-bootstrap",
@@ -21,8 +21,7 @@ export function buildBootstrapDirective(wikiName?: string | null): DirectiveMess
       "",
       "Before responding to the user, make sure the project wiki is usable — then stop:",
       targeting,
-      "1. Call `wiki_info`: if this wiki's index_status is degraded, recover it with `wiki_index_rebuild`.",
-      "2. Do NOT orient further — research and crystallize skills orient themselves when invoked. Continue with the user's request.",
+      "1. Do NOT orient further — research and crystallize skills orient themselves when invoked. Continue with the user's request.",
     ].join("\n"),
   };
 }

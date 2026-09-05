@@ -14,15 +14,15 @@ describe("directive builders", () => {
 
   it("lean bootstrap ensures the derived space exists and targets it", () => {
     const msg = buildBootstrapDirective("rust-wiki-cc79119");
-    expect(msg.content).toContain("wiki_spaces_list");
     expect(msg.content).toContain("wiki_spaces_create");
     expect(msg.content).toContain('wiki: "rust-wiki-cc79119"');
   });
 
-  it("lean bootstrap keeps index health in the critical path", () => {
+  it("lean bootstrap folds space check and index health into one wiki_info call", () => {
     const msg = buildBootstrapDirective("rust-wiki-cc79119");
     expect(msg.content).toContain("wiki_info");
     expect(msg.content).toContain("wiki_index_rebuild");
+    expect(msg.content).not.toContain("wiki_spaces_list");
   });
 
   it("lean bootstrap skips deep orientation", () => {
