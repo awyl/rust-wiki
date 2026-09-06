@@ -16,14 +16,22 @@ export interface AutopilotConfig {
   display: boolean;
   /** Parent directory for new wiki spaces — enables unattended space creation in bootstrap. */
   wikiRoot: string;
+  /** Wiki MCP endpoint for the mechanical bootstrap calls. */
+  wikiMcpUrl: string;
+  /** Bearer token for the wiki MCP endpoint (defaults to $AIPROXY_TOKEN). */
+  wikiMcpToken: string;
   crystallize: CrystallizeConfig;
 }
+
+export const DEFAULT_WIKI_MCP_URL = "http://host.containers.internal:9999/mcp/wiki";
 
 export const DEFAULT_CONFIG: AutopilotConfig = {
   bootstrap: true,
   researchNudge: true,
   display: false,
   wikiRoot: "",
+  wikiMcpUrl: DEFAULT_WIKI_MCP_URL,
+  wikiMcpToken: process.env.AIPROXY_TOKEN ?? "AIPROXY_TOKEN",
   crystallize: { enabled: true, everyNRuns: 8, oncePerSession: false },
 };
 
@@ -66,6 +74,8 @@ export function loadConfig(cwd: string, globalDir: string = globalAgentDir()): L
       researchNudge: pick("researchNudge"),
       display: pick("display"),
       wikiRoot: pick("wikiRoot"),
+      wikiMcpUrl: pick("wikiMcpUrl"),
+      wikiMcpToken: pick("wikiMcpToken"),
       crystallize: {
         enabled: project.raw?.crystallize?.enabled ?? global.raw?.crystallize?.enabled ?? DEFAULT_CONFIG.crystallize.enabled,
         everyNRuns:

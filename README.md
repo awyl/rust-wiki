@@ -7,7 +7,7 @@ Autonomous [llm-wiki-skills](https://github.com/geronimo-iia/llm-wiki-skills) tr
 
 | Trigger | When | Effect |
 |---------|------|--------|
-| Bootstrap | `session_start` | **Fully automated, zero agent turns**: fires a detached headless worker (`bootstrap-worker.md`) that calls `wiki_info` once — creates the git-derived space if missing (unattended when `wikiRoot` is set), rebuilds the index if degraded, intercom-sends a one-line receipt. Wiki scoping for the session rides the research nudge footer (session-static, cache-safe) |
+| Bootstrap | first user message | **Holds the turn for sub-second mechanical MCP calls, then processes the message**: the extension calls the wiki server directly (`wiki_info` → create space via `wikiRoot` if missing → rebuild degraded index). No model involved. Sessions that never receive a message never fire it. Wiki scoping rides the research nudge footer (session-static, cache-safe). Endpoint: `wikiMcpUrl` config key (default = the aiproxy MCP route), token = `$AIPROXY_TOKEN` |
 | Research nudge | every turn | Static 3-line system-prompt footer routing knowledge questions to the `research` skill (cache-safe) |
 | Crystallize | every 8 settled agent runs (re-arms; `oncePerSession` pins to first) | Queues a 4-line delegation directive that **auto-triggers an idle agent** (`followUp` + `triggerTurn` — no user nudge needed): main agent writes its session extraction to a temp file and fires one detached headless `pi -p` worker (`LLM_WIKI_AUTOPILOT_DISABLE=1`). Static worker instructions live in `worker-crystallize.md` inside the package — directives stay tiny. Worker auto-writes, ingests, rebuilds the index, logs to `/tmp/llm-wiki-crystallize-<wiki>.log`, and intercom-sends a completion line to the main session |
 
@@ -30,8 +30,10 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 {
   "bootstrap": true,
   "researchNudge": true,
-  "display": true,
+  "display": false,
   "wikiRoot": "/data",
+  "wikiMcpUrl": "http://host.containers.internal:9999/mcp/wiki",
+  "wikiMcpToken": "AIPROXY_TOKEN",
   "crystallize": { "enabled": true, "everyNRuns": 8, "oncePerSession": false }
 }
 ```
@@ -39,6 +41,16 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 **`display`:** default `false` — directive text (crystallize) is delivered silently; you'll see the agent's one-line report and the background worker command. Set `true` to render directive text in the UI.
 
 **`wikiRoot`:** parent directory used to create new wiki spaces — bootstrap then creates the space unattended instead of asking you for the parent directory. Leave unset to keep the ask-once behavior.
+
+**`wikiMcpUrl`:** the MCP endpoint the extension calls directly for mechanical bootstrap checks (`wiki_info` / `wiki_spaces_create` / `wiki_index_rebuild`). Default `http://host.containers.internal:9999/mcp/wiki` — the aiproxy proxy's per-server route for the wiki server. If your wiki MCP server is exposed elsewhere (standalone `llm-wiki serve --http`, different host/port, direct engine URL), set this to that endpoint:
+
+```json
+{ "wikiMcpUrl": "http://localhost:8080/mcp" }
+```
+
+Any MCP endpoint that serves the `wiki_*` tools works — point it at the same server your agent's wiki tools use, or the engine's own HTTP interface.
+
+**`wikiMcpToken`:** bearer token for that endpoint. Defaults to `$AIPROXY_TOKEN` when set, otherwise the literal default that matches the stock aiproxy route. For a direct engine endpoint with no auth, set it to an empty string.
 
 **`crystallize.oncePerSession`:** default `false` — crystallize re-arms and fires again after every `everyNRuns` settled runs. Set `true` for the old fire-once-per-session behavior.
 

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildResearchNudge } from "../extensions/llm-wiki-skills/lib/messages.js";
+import type { BootstrapResult } from "../extensions/llm-wiki-skills/lib/bootstrap.js";
 
 type Handler = (event: any, ctx: any) => Promise<any>;
 
@@ -28,6 +29,18 @@ const fakeCtx = (cwd = "/tmp/project") => ({
   ui: { notify: vi.fn() },
 });
 
+function recorder(results: BootstrapResult[] = [{ space: "ok", index: "ok", detail: "space ok; index ok" }]) {
+  const calls: any[] = [];
+  let i = 0;
+  return {
+    calls,
+    ensureWikiReadyFn: async (input: any) => {
+      calls.push(input);
+      return results[Math.min(i, results.length - 1)];
+    },
+  };
+}
+
 async function loadExtension(deps: Record<string, unknown> = {}) {
   const mod = await import("../extensions/llm-wiki-skills/index.js");
   const fake = createFakePi();
@@ -35,98 +48,121 @@ async function loadExtension(deps: Record<string, unknown> = {}) {
   return { ...fake };
 }
 
-describe("extension hooks", () => {
-  it("session_start fires a detached bootstrap worker instead of messaging the agent", async () => {
-    const spawned: string[] = [];
-    const { handlers, sent } = await loadExtension({
-      spawnDetached: (command: string) => void spawned.push(command),
-    });
-    await handlers.get("session_start")!({ reason: "startup" }, fakeCtx("/work"));
+describe("bootstrap hold", () => {
+  it("session_start fires nothing; the first agent run runs the mechanical bootstrap first", async () => {
+    const { ensureWikiReadyFn, calls } = recorder();
+    const { handlers, sent } = await loadExtension({ ensureWikiReadyFn });
+    const ctx = fakeCtx("/work");
+    await handlers.get("session_start")!({ reason: "startup" }, ctx);
     expect(sent).toHaveLength(0);
-    expect(spawned).toHaveLength(1);
-    const cmd = spawned[0];
-    expect(cmd).toContain("LLM_WIKI_AUTOPILOT_DISABLE=1");
-    expect(cmd).toContain("bootstrap-worker.md");
-    expect(cmd).toContain("Wiki: rust-wiki-cc79119");
-    expect(cmd).toContain("/tmp/llm-wiki-bootstrap-rust-wiki-cc79119.log");
+    expect(calls).toHaveLength(0); // nothing fires until the user speaks
+
+    await handlers.get("before_agent_start")!({ prompt: "hi", systemPrompt: "BASE" }, ctx);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].wikiName).toBe("rust-wiki-cc79119");
+    expect(calls[0].url).toContain("http");
   });
 
-  it("session_start passes the configured wikiRoot to the worker", async () => {
+  it("bootstrap runs exactly once per session", async () => {
+    const { ensureWikiReadyFn, calls } = recorder();
+    const { handlers } = await loadExtension({ ensureWikiReadyFn });
+    const ctx = fakeCtx("/work");
+    const hook = handlers.get("before_agent_start")!;
+    await hook({ prompt: "a", systemPrompt: "BASE" }, ctx);
+    await hook({ prompt: "b", systemPrompt: "BASE" }, ctx);
+    await hook({ prompt: "c", systemPrompt: "BASE" }, ctx);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("passes the configured wikiRoot to the bootstrap call", async () => {
     const dir = mkdtempSync(join(tmpdir(), "hooks-root-"));
     mkdirSync(join(dir, ".pi"), { recursive: true });
     writeFileSync(join(dir, ".pi", "llm-wiki.json"), JSON.stringify({ wikiRoot: "/data" }));
-    const spawned: string[] = [];
+    const { ensureWikiReadyFn, calls } = recorder();
     try {
-      const { handlers } = await loadExtension({
-        spawnDetached: (command: string) => void spawned.push(command),
-      });
-      await handlers.get("session_start")!({ reason: "startup" }, fakeCtx(dir));
-      expect(spawned[0]).toContain("WikiRoot: /data");
+      const { handlers } = await loadExtension({ ensureWikiReadyFn });
+      const ctx = fakeCtx(dir);
+      await handlers.get("session_start")!({ reason: "startup" }, ctx);
+      await handlers.get("before_agent_start")!({ prompt: "hi", systemPrompt: "BASE" }, ctx);
+      expect(calls[0].wikiRoot).toBe("/data");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("before_agent_start appends the nudge with wiki scoping exactly once", async () => {
-    const { handlers } = await loadExtension();
-    const ctx = fakeCtx("/work");
-    await handlers.get("session_start")!({ reason: "startup" }, ctx);
-    const first = await handlers.get("before_agent_start")!(
-      { prompt: "hi", systemPrompt: "BASE" },
-      ctx,
-    );
-    expect(first!.systemPrompt).toContain("BASE");
-    expect(first!.systemPrompt).toContain('wiki: "rust-wiki-cc79119"');
-    const second = await handlers.get("before_agent_start")!(
-      { prompt: "hi again", systemPrompt: first!.systemPrompt },
-      ctx,
-    );
-    expect(second).toBeUndefined();
-  });
-
-  it("agent_settled fires at the threshold and re-arms (recurring by default)", async () => {
-    const spawned: string[] = [];
-    const { handlers, sent } = await loadExtension({
-      spawnDetached: (command: string) => void spawned.push(command),
-    });
-    const ctx = fakeCtx();
-    await handlers.get("session_start")!({ reason: "startup" }, ctx);
-    const handler = handlers.get("agent_settled")!;
-    for (let i = 0; i < 16; i++) await handler({}, ctx);
-    const crystallize = sent.filter((s) => s.message.customType === "llm-wiki-crystallize");
-    expect(crystallize).toHaveLength(2); // fires at runs 8 and 16
-    expect(crystallize[0].message.content).toContain("pi -p");
-  });
-
-  it("crystallize delivery auto-triggers an idle agent (followUp + triggerTurn)", async () => {
-    const spawned: string[] = [];
-    const { handlers, sent } = await loadExtension({
-      spawnDetached: (command: string) => void spawned.push(command),
-    });
-    await handlers.get("session_start")!({ reason: "startup" }, fakeCtx());
-    const handler = handlers.get("agent_settled")!;
-    for (let i = 0; i < 8; i++) await handler({}, fakeCtx());
-    const crystallize = sent.find((s) => s.message.customType === "llm-wiki-crystallize");
-    expect(crystallize!.options).toEqual({ deliverAs: "followUp", triggerTurn: true });
-  });
-
-  it("env guard disables all hooks (prevents worker recursion)", async () => {
-    process.env.LLM_WIKI_AUTOPILOT_DISABLE = "1";
+  it("skips the bootstrap entirely when disabled", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hooks-noboot-"));
+    mkdirSync(join(dir, ".pi"), { recursive: true });
+    writeFileSync(join(dir, ".pi", "llm-wiki.json"), JSON.stringify({ bootstrap: false }));
+    const { ensureWikiReadyFn, calls } = recorder();
     try {
-      const { handlers, sent } = await loadExtension();
-      expect(handlers.size).toBe(0);
-      expect(sent).toHaveLength(0);
+      const { handlers } = await loadExtension({ ensureWikiReadyFn });
+      const ctx = fakeCtx(dir);
+      await handlers.get("session_start")!({ reason: "startup" }, ctx);
+      await handlers.get("before_agent_start")!({ prompt: "hi", systemPrompt: "BASE" }, ctx);
+      expect(calls).toHaveLength(0);
     } finally {
-      delete process.env.LLM_WIKI_AUTOPILOT_DISABLE;
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("session_start resets the crystallize counter and proposal flag", async () => {
-    const spawned: string[] = [];
-    const { handlers, sent } = await loadExtension({
-      spawnDetached: (command: string) => void spawned.push(command),
+  it("a failing bootstrap never blocks the turn", async () => {
+    const { handlers } = await loadExtension({
+      ensureWikiReadyFn: async () => {
+        throw new Error("mcp exploded");
+      },
     });
-    const ctx = fakeCtx();
+    const ctx = fakeCtx("/work");
+    await handlers.get("session_start")!({ reason: "startup" }, ctx);
+    const result = await handlers.get("before_agent_start")!(
+      { prompt: "hi", systemPrompt: "BASE" },
+      ctx,
+    );
+    expect(result!.systemPrompt).toContain("BASE"); // turn proceeds
+  });
+});
+
+describe("research nudge", () => {
+  it("appends wiki scoping exactly once", async () => {
+    const { ensureWikiReadyFn } = recorder();
+    const { handlers } = await loadExtension({ ensureWikiReadyFn });
+    const ctx = fakeCtx("/work");
+    await handlers.get("session_start")!({ reason: "startup" }, ctx);
+    const hook = handlers.get("before_agent_start")!;
+    const first = await hook({ prompt: "hi", systemPrompt: "BASE" }, ctx);
+    expect(first!.systemPrompt).toContain('wiki: "rust-wiki-cc79119"');
+    const second = await hook({ prompt: "hi again", systemPrompt: first!.systemPrompt }, ctx);
+    expect(second).toBeUndefined();
+  });
+
+  it("omits scoping when no name is derivable", () => {
+    expect(buildResearchNudge(null)).not.toContain("wiki:");
+  });
+
+  it("is session-static — same input, byte-identical output", () => {
+    expect(buildResearchNudge("x")).toBe(buildResearchNudge("x"));
+  });
+});
+
+describe("crystallize", () => {
+  it("fires at the threshold, re-arms, and auto-triggers an idle agent", async () => {
+    const { ensureWikiReadyFn } = recorder();
+    const { handlers, sent } = await loadExtension({ ensureWikiReadyFn });
+    const ctx = fakeCtx("/work");
+    await handlers.get("session_start")!({ reason: "startup" }, ctx);
+    await handlers.get("before_agent_start")!({ prompt: "hi", systemPrompt: "BASE" }, ctx);
+    const settled = handlers.get("agent_settled")!;
+    for (let i = 0; i < 16; i++) await settled({}, ctx);
+    const crystallize = sent.filter((s) => s.message.customType === "llm-wiki-crystallize");
+    expect(crystallize).toHaveLength(2); // runs 8 and 16
+    expect(crystallize[0].options).toEqual({ deliverAs: "followUp", triggerTurn: true });
+    expect(crystallize[0].message.content).toContain("pi -p");
+  });
+
+  it("session_start resets the crystallize counter and proposal flag", async () => {
+    const { ensureWikiReadyFn } = recorder();
+    const { handlers, sent } = await loadExtension({ ensureWikiReadyFn });
+    const ctx = fakeCtx("/work");
     const settled = handlers.get("agent_settled")!;
     for (let i = 0; i < 8; i++) await settled({}, ctx);
     await handlers.get("session_start")!({ reason: "new" }, ctx);
@@ -144,9 +180,8 @@ describe("extension hooks", () => {
       JSON.stringify({ crystallize: { enabled: true, everyNRuns: 8, oncePerSession: true } }),
     );
     try {
-      const { handlers, sent } = await loadExtension({
-        spawnDetached: () => {},
-      });
+      const { ensureWikiReadyFn } = recorder();
+      const { handlers, sent } = await loadExtension({ ensureWikiReadyFn });
       await handlers.get("session_start")!({ reason: "startup" }, fakeCtx(dir));
       const settled = handlers.get("agent_settled")!;
       for (let i = 0; i < 24; i++) await settled({}, fakeCtx(dir));
@@ -155,34 +190,27 @@ describe("extension hooks", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("env guard disables all hooks (prevents worker recursion)", async () => {
+    process.env.LLM_WIKI_AUTOPILOT_DISABLE = "1";
+    try {
+      const { handlers, sent } = await loadExtension();
+      expect(handlers.size).toBe(0);
+      expect(sent).toHaveLength(0);
+    } finally {
+      delete process.env.LLM_WIKI_AUTOPILOT_DISABLE;
+    }
+  });
 });
 
-describe("bootstrap worker file", () => {
-  it("ships the mechanical ensure/rebuild/receipt procedure", () => {
-    const file = readFileSync(
-      join(__dirname, "../extensions/llm-wiki-skills/bootstrap-worker.md"),
-      "utf-8",
-    );
-    expect(file).toContain("wiki_info");
-    expect(file).toContain("wiki_spaces_create");
+describe("worker file", () => {
+  it("worker-crystallize.md ships the full unattended procedure", () => {
+    const file = readFileSync(join(__dirname, "../extensions/llm-wiki-skills/worker-crystallize.md"), "utf-8");
+    expect(file).toContain("AUTO-WRITE");
     expect(file).toContain("wiki_index_rebuild");
-    expect(file).toContain("needs-parent-dir");
+    expect(file).toContain("wiki_ingest");
+    expect(file).toContain("wiki_lint");
+    expect(file).toContain("accumulation contract");
     expect(file).toContain("intercom");
-  });
-});
-
-describe("research nudge", () => {
-  it("carries wiki scoping when a name is derivable", () => {
-    const nudge = buildResearchNudge("rust-wiki-cc79119");
-    expect(nudge).toContain("research");
-    expect(nudge).toContain('wiki: "rust-wiki-cc79119"');
-  });
-
-  it("omits scoping when no name is derivable", () => {
-    expect(buildResearchNudge(null)).not.toContain("wiki:");
-  });
-
-  it("is session-static — same input, byte-identical output", () => {
-    expect(buildResearchNudge("x")).toBe(buildResearchNudge("x"));
   });
 });

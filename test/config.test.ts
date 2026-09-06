@@ -38,6 +38,8 @@ describe("loadConfig", () => {
       researchNudge: true,
       display: false,
       wikiRoot: "",
+      wikiMcpUrl: "http://host.containers.internal:9999/mcp/wiki",
+      wikiMcpToken: process.env.AIPROXY_TOKEN ?? "AIPROXY_TOKEN",
       crystallize: { enabled: true, everyNRuns: 3, oncePerSession: false },
     });
   });
@@ -79,6 +81,8 @@ describe("loadConfig", () => {
       researchNudge: true,
       display: false,
       wikiRoot: "",
+      wikiMcpUrl: "http://host.containers.internal:9999/mcp/wiki",
+      wikiMcpToken: process.env.AIPROXY_TOKEN ?? "AIPROXY_TOKEN",
       crystallize: { enabled: false, everyNRuns: 2, oncePerSession: false },
     });
   });

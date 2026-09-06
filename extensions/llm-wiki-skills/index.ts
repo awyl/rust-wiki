@@ -1,23 +1,18 @@
-import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG, loadConfig, type AutopilotConfig } from "./lib/config.js";
+import { ensureWikiReady } from "./lib/bootstrap.js";
 import { buildCrystallizeDirective, buildResearchNudge } from "./lib/messages.js";
 import { deriveWikiName } from "./lib/wikiName.js";
 
 export interface ExtensionDeps {
-  /** Test seam: runs the detached bootstrap worker command. */
-  spawnDetached?: (command: string) => void;
-}
-
-function defaultSpawnDetached(command: string): void {
-  const child = spawn("bash", ["-c", command], { detached: true, stdio: "ignore" });
-  child.unref();
+  /** Test seam: replaces the mechanical ensureWikiReady bootstrap call. */
+  ensureWikiReadyFn?: typeof ensureWikiReady;
 }
 
 export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps = {}): void {
-  // Headless workers spawned by this extension set this to avoid
+  // Headless workers spawned by the crystallize directive set this to avoid
   // recursive autopilot firing (bootstrap/crystallize) inside the worker.
   if (process.env.LLM_WIKI_AUTOPILOT_DISABLE) return;
 
@@ -25,11 +20,11 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   const skillsDir = join(here, "..", "..", "skills");
   const skillPath = (name: string) => join(skillsDir, name, "SKILL.md");
   const workerPromptPath = join(here, "worker-crystallize.md");
-  const bootstrapWorkerPath = join(here, "bootstrap-worker.md");
-  const spawnDetached = deps.spawnDetached ?? defaultSpawnDetached;
+  const ensure = deps.ensureWikiReadyFn ?? ensureWikiReady;
 
   let settledRuns = 0;
   let crystallizeProposed = false;
+  let bootstrapRan = false;
   let wikiName: string | null = null;
   let nudge: string | null = null;
   let config: AutopilotConfig = DEFAULT_CONFIG;
@@ -37,23 +32,39 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   pi.on("session_start", async (_event, ctx) => {
     settledRuns = 0;
     crystallizeProposed = false;
+    bootstrapRan = false;
     wikiName = deriveWikiName(ctx.cwd);
     const loaded = loadConfig(ctx.cwd);
     config = loaded.config;
     if (loaded.warning) ctx.ui.notify(loaded.warning, "warning");
     // Session-static system prompt footer: wiki scoping rides the nudge
-    // (byte-identical all session — prompt-cache safe), so bootstrap needs
-    // no agent turn at all.
+    // (byte-identical all session — prompt-cache safe).
     nudge = buildResearchNudge(wikiName);
-    if (config.bootstrap) {
-      const logPath = `/tmp/llm-wiki-bootstrap-${wikiName ?? "default"}.log`;
-      spawnDetached(
-        `LLM_WIKI_AUTOPILOT_DISABLE=1 pi -p "Read ${bootstrapWorkerPath} and follow it. Wiki: ${wikiName ?? "default"}. WikiRoot: ${config.wikiRoot || "unset"}." > ${logPath} 2>&1 &`,
-      );
-    }
   });
 
-  pi.on("before_agent_start", async (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
+    // Bootstrap holds the user's first turn: mechanical MCP calls (ensure
+    // space, rebuild degraded index) run to completion — sub-second — before
+    // the first message is processed. Sessions that never receive a message
+    // never fire it.
+    if (config.bootstrap && !bootstrapRan) {
+      bootstrapRan = true;
+      try {
+        const result = await ensure({
+          wikiName: wikiName ?? "default",
+          wikiRoot: config.wikiRoot || undefined,
+          url: config.wikiMcpUrl,
+          token: config.wikiMcpToken,
+        });
+        if (result.space === "error") {
+          ctx.ui.notify(`[llm-wiki] bootstrap failed: ${result.detail} — continuing without it (index self-heals via crystallize)`, "warning");
+        } else {
+          ctx.ui.notify(`[llm-wiki] wiki: "${wikiName ?? "default"}" — space ${result.space}, index ${result.index}`, "info");
+        }
+      } catch (err) {
+        ctx.ui.notify(`[llm-wiki] bootstrap failed: ${(err as Error).message} — continuing without it`, "warning");
+      }
+    }
     if (!config.researchNudge || !nudge) return;
     if (event.systemPrompt.includes(nudge)) return;
     return { systemPrompt: event.systemPrompt + nudge };
