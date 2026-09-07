@@ -106,22 +106,52 @@ mod tests {
     #[test]
     fn paths_are_flat_under_space_root() {
         let v = vault();
-        assert_eq!(v.config_file(), PathBuf::from("/data/vaults/test-space/config.json"));
-        assert_eq!(v.raw_sources(), PathBuf::from("/data/vaults/test-space/raw/sources"));
-        assert_eq!(v.registry_file(), PathBuf::from("/data/vaults/test-space/meta/registry.json"));
-        assert_eq!(v.page_path("concepts/rag"), PathBuf::from("/data/vaults/test-space/wiki/concepts/rag.md"));
-        assert_eq!(v.discoveries(), PathBuf::from("/data/vaults/test-space/.discoveries"));
+        assert_eq!(
+            v.config_file(),
+            PathBuf::from("/data/vaults/test-space/config.json")
+        );
+        assert_eq!(
+            v.raw_sources(),
+            PathBuf::from("/data/vaults/test-space/raw/sources")
+        );
+        assert_eq!(
+            v.registry_file(),
+            PathBuf::from("/data/vaults/test-space/meta/registry.json")
+        );
+        assert_eq!(
+            v.page_path("concepts/rag"),
+            PathBuf::from("/data/vaults/test-space/wiki/concepts/rag.md")
+        );
+        assert_eq!(
+            v.discoveries(),
+            PathBuf::from("/data/vaults/test-space/.discoveries")
+        );
     }
 
     #[test]
     fn ownership_rules() {
         let v = vault();
         let space = v.space_root.clone();
-        assert_eq!(ownership(&v, &space.join("raw/sources/SRC-1/extracted.md")), Ownership::Raw);
-        assert_eq!(ownership(&v, &space.join("meta/registry.json")), Ownership::Meta);
-        assert_eq!(ownership(&v, &space.join("wiki/concepts/rag.md")), Ownership::Wiki);
-        assert_eq!(ownership(&v, &space.join("unrelated.txt")), Ownership::Other);
+        assert_eq!(
+            ownership(&v, &space.join("raw/sources/SRC-1/extracted.md")),
+            Ownership::Raw
+        );
+        assert_eq!(
+            ownership(&v, &space.join("meta/registry.json")),
+            Ownership::Meta
+        );
+        assert_eq!(
+            ownership(&v, &space.join("wiki/concepts/rag.md")),
+            Ownership::Wiki
+        );
+        assert_eq!(
+            ownership(&v, &space.join("unrelated.txt")),
+            Ownership::Other
+        );
         assert_eq!(ownership(&v, Path::new("/etc/passwd")), Ownership::Other);
-        assert_eq!(ownership(&v, &space.join("templates/concept.md")), Ownership::Other);
+        assert_eq!(
+            ownership(&v, &space.join("templates/concept.md")),
+            Ownership::Other
+        );
     }
 }

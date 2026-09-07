@@ -21,25 +21,12 @@ pub struct LintReport {
 }
 
 pub fn run(vault: &VaultPaths, registry: &Registry, auto_fix: bool) -> Result<LintReport, String> {
-    // backlinks from the in-memory registry (links already extracted)
-    let mut inbound: std::collections::BTreeMap<&str, usize> = Default::default();
-    for p in registry.pages.values() {
-        for t in &p.links {
-            *inbound.entry(t.as_str()).or_default() += 1;
-        }
-    }
-    let mut orphans: Vec<String> = registry
-        .pages
-        .keys()
-        .filter(|id| inbound.get(id.as_str()).copied().unwrap_or(0) == 0)
-        .cloned()
-        .collect();
-    orphans.sort();
-
+    let inbound = super::registry::inbound_links(registry);
+    let orphans = super::status::orphans_of(registry);
     let mut missing: Vec<String> = inbound
         .keys()
-        .filter(|id| !registry.pages.contains_key(**id))
-        .map(|s| s.to_string())
+        .filter(|id| !registry.pages.contains_key(*id))
+        .cloned()
         .collect();
     missing.sort();
 
@@ -59,9 +46,8 @@ pub fn run(vault: &VaultPaths, registry: &Registry, auto_fix: bool) -> Result<Li
     if auto_fix {
         // stub a missing page when ≥2 distinct pages cite it
         for id in &missing {
-            let cites = inbound.get(id.as_str()).copied().unwrap_or(0);
-            if cites >= 2 {
-                create_stub(vault, id, &registry.pages.keys().cloned().collect::<Vec<_>>())?;
+            if inbound.get(id).map(|v| v.len()).unwrap_or(0) >= 2 {
+                create_stub(vault, id)?;
                 auto_fixed.push(id.clone());
             }
         }
@@ -79,7 +65,7 @@ pub fn run(vault: &VaultPaths, registry: &Registry, auto_fix: bool) -> Result<Li
     })
 }
 
-fn create_stub(vault: &VaultPaths, id: &str, _citing: &[String]) -> Result<(), String> {
+fn create_stub(vault: &VaultPaths, id: &str) -> Result<(), String> {
     // stubs are concepts by default
     let title = id.rsplit('/').next().unwrap_or(id).replace('-', " ");
     let page_id = format!("concepts/{}", slugify(&title));
@@ -152,7 +138,11 @@ mod tests {
     fn detects_missing_contradiction_and_autofixes_stubs() {
         let (_t, v) = setup();
         page(&v, "concepts/a", "# A\n\nlinks [[concepts/b]]\n");
-        page(&v, "concepts/c", "# C\n\nalso links [[concepts/b]]\n⚠️ **Contradiction:** X vs Y\n");
+        page(
+            &v,
+            "concepts/c",
+            "# C\n\nalso links [[concepts/b]]\n⚠️ **Contradiction:** X vs Y\n",
+        );
         let reg = rebuild_metadata(&v).unwrap();
         let r = run(&v, &reg, true).unwrap();
         assert_eq!(r.missing_pages, vec!["concepts/b"]);

@@ -4,8 +4,8 @@
 use std::fs;
 
 use super::layout::{ownership, Ownership, VaultPaths};
-use super::registry::{rebuild_metadata, Registry};
 use super::lint::slugify;
+use super::registry::{rebuild_metadata, Registry};
 
 pub const PAGE_TYPES: &[(&str, &str)] = &[
     ("entity", "entities"),
@@ -15,13 +15,18 @@ pub const PAGE_TYPES: &[(&str, &str)] = &[
 ];
 
 pub fn folder_for(page_type: &str) -> Option<&'static str> {
-    PAGE_TYPES.iter().find(|(t, _)| *t == page_type).map(|(_, f)| *f)
+    PAGE_TYPES
+        .iter()
+        .find(|(t, _)| *t == page_type)
+        .map(|(_, f)| *f)
 }
 
 pub fn valid_slug(slug: &str) -> bool {
     !slug.is_empty()
         && slug.len() <= 96
-        && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && slug
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         && !slug.starts_with('-')
         && !slug.ends_with('-')
         && !slug.contains("--")
@@ -64,10 +69,12 @@ pub fn apply_gate(body: &str, existing: &Registry, mode: GateMode) -> Result<Str
         let raw = &caps[1];
         let id = raw.trim();
         if id.is_empty() {
-            return Err(format!("empty wikilink [[]]"));
+            return Err("empty wikilink [[]]".to_string());
         }
         if mode == GateMode::Validate && !existing.pages.contains_key(id) {
-            return Err(format!("wikilink [[{id}]] does not resolve to an existing page"));
+            return Err(format!(
+                "wikilink [[{id}]] does not resolve to an existing page"
+            ));
         }
         if mode == GateMode::Normalize {
             let canonical = format!("[{id}](/{id}.md)");
@@ -88,13 +95,21 @@ fn template_body(vault: &VaultPaths, page_type: &str, title: &str) -> String {
 }
 
 /// Create `folder/slug.md` if absent. Returns (id, created).
-pub fn ensure_page(vault: &VaultPaths, page_type: &str, title: &str, content: Option<&str>, gate: GateMode) -> Result<(String, bool), String> {
+pub fn ensure_page(
+    vault: &VaultPaths,
+    page_type: &str,
+    title: &str,
+    content: Option<&str>,
+    gate: GateMode,
+) -> Result<(String, bool), String> {
     let Some(folder) = folder_for(page_type) else {
         return Err(format!("unknown page type '{page_type}' — expected one of: entity, concept, synthesis, analysis"));
     };
     let slug = slugify(title);
     if !valid_slug(&slug) {
-        return Err(format!("title '{title}' does not slugify to a valid kebab-case id"));
+        return Err(format!(
+            "title '{title}' does not slugify to a valid kebab-case id"
+        ));
     }
     let id = format!("{folder}/{slug}");
     let path = vault.page_path(&id);
@@ -125,13 +140,20 @@ pub fn read_page(vault: &VaultPaths, id: &str) -> Result<String, String> {
 }
 
 /// Guarded update of an EXISTING wiki page. Never creates.
-pub fn write_page(vault: &VaultPaths, id: &str, content: &str, gate: GateMode) -> Result<(), String> {
+pub fn write_page(
+    vault: &VaultPaths,
+    id: &str,
+    content: &str,
+    gate: GateMode,
+) -> Result<(), String> {
     let path = vault.page_path(id);
     if ownership(vault, &path) != Ownership::Wiki {
         return Err(format!("'{id}' is not a writable wiki page"));
     }
     if !path.exists() {
-        return Err(format!("page '{id}' does not exist — use wiki_ensure_page to create"));
+        return Err(format!(
+            "page '{id}' does not exist — use wiki_ensure_page to create"
+        ));
     }
     let gated = apply_gate(content, &read_registry(vault)?, gate)?;
     // preserve frontmatter: caller passes full doc; we only guardrail-check type unchanged
@@ -146,7 +168,14 @@ fn read_registry(vault: &VaultPaths) -> Result<Registry, String> {
 }
 
 /// Atomic insight file: wiki/sources/<slug>.md, searchable immediately.
-pub fn retro(vault: &VaultPaths, slug: &str, title: &str, body: &str, category: Option<&str>, gate: GateMode) -> Result<String, String> {
+pub fn retro(
+    vault: &VaultPaths,
+    slug: &str,
+    title: &str,
+    body: &str,
+    category: Option<&str>,
+    gate: GateMode,
+) -> Result<String, String> {
     if !valid_slug(slug) {
         return Err(format!("invalid slug '{slug}' — use kebab-case"));
     }
@@ -159,7 +188,11 @@ pub fn retro(vault: &VaultPaths, slug: &str, title: &str, body: &str, category: 
     let cat = category.unwrap_or("");
     let doc = format!(
         "---\ntitle: \"{title}\"\ntype: retro\n{cat}\n---\n\n{gated}",
-        cat = if cat.is_empty() { String::new() } else { format!("category: {cat}") }
+        cat = if cat.is_empty() {
+            String::new()
+        } else {
+            format!("category: {cat}")
+        }
     );
     fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     fs::write(&path, doc).map_err(|e| e.to_string())?;
@@ -167,13 +200,38 @@ pub fn retro(vault: &VaultPaths, slug: &str, title: &str, body: &str, category: 
     Ok(id)
 }
 
+/// Timestamped observation input (keeps the fn under the arg limit).
+#[derive(Debug, Clone)]
+pub struct ObserveInput<'a> {
+    pub title: &'a str,
+    pub content: &'a str,
+    pub relevance: &'a str,
+    pub tags: Option<&'a str>,
+    pub source_context: Option<&'a str>,
+}
+
 /// Timestamped observation: wiki/sources/obs-<date>-<slug>.md
-pub fn observe(vault: &VaultPaths, date: &str, title: &str, content: &str, relevance: &str, tags: Option<&str>, source_context: Option<&str>, gate: GateMode) -> Result<String, String> {
+pub fn observe(
+    vault: &VaultPaths,
+    date: &str,
+    input: &ObserveInput<'_>,
+    gate: GateMode,
+) -> Result<String, String> {
+    let ObserveInput {
+        title,
+        content,
+        relevance,
+        tags,
+        source_context,
+    } = *input;
     if !matches!(relevance, "low" | "medium" | "high" | "critical") {
-        return Err(format!("invalid relevance '{relevance}' — low|medium|high|critical"));
+        return Err(format!(
+            "invalid relevance '{relevance}' — low|medium|high|critical"
+        ));
     }
     let slug = format!("obs-{date}-{}", slugify(title));
-    if !valid_slug(&slug.replace(format!("obs-{date}-").as_str(), "")) {
+    let body_slug = slugify(title);
+    if !valid_slug(&body_slug) {
         return Err(format!("title '{title}' does not slugify"));
     }
     let id = format!("sources/{slug}");
@@ -210,7 +268,14 @@ mod tests {
     #[test]
     fn gate_validate_rejects_dangling_wikilink() {
         let (_t, v) = setup();
-        let err = ensure_page(&v, "concept", "X", Some("see [[concepts/missing]]\n"), GateMode::Validate).unwrap_err();
+        let err = ensure_page(
+            &v,
+            "concept",
+            "X",
+            Some("see [[concepts/missing]]\n"),
+            GateMode::Validate,
+        )
+        .unwrap_err();
         assert!(err.contains("does not resolve"));
     }
 
@@ -235,7 +300,13 @@ mod tests {
         assert!(err.contains("wiki_ensure_page"));
 
         // normalize gate rewrites wikilinks on write
-        write_page(&v, &id, "---\ntitle: \"Rag Note\"\ntype: concept\n---\n\nsee [[concepts/rag-note]] ok\n", GateMode::Normalize).unwrap();
+        write_page(
+            &v,
+            &id,
+            "---\ntitle: \"Rag Note\"\ntype: concept\n---\n\nsee [[concepts/rag-note]] ok\n",
+            GateMode::Normalize,
+        )
+        .unwrap();
         let content = read_page(&v, &id).unwrap();
         assert!(content.contains("[concepts/rag-note](/concepts/rag-note.md)"));
     }
@@ -243,14 +314,46 @@ mod tests {
     #[test]
     fn retro_and_observe_write_sources() {
         let (_t, v) = setup();
-        let id = retro(&v, "jwt-fix", "JWT revocation fix", "learned [[concepts/x]]\n", Some("bugfix"), GateMode::Off).unwrap();
+        let id = retro(
+            &v,
+            "jwt-fix",
+            "JWT revocation fix",
+            "learned [[concepts/x]]\n",
+            Some("bugfix"),
+            GateMode::Off,
+        )
+        .unwrap();
         assert_eq!(id, "sources/jwt-fix");
         let dup = retro(&v, "jwt-fix", "dup", "b", None, GateMode::Off).unwrap_err();
         assert!(dup.contains("already exists"));
 
-        let obs = observe(&v, "2026-09-07", "Decided KISS port", "we port scoring not tantivy", "high", Some("rust wiki"), Some("rust-wiki build"), GateMode::Off).unwrap();
+        let obs = observe(
+            &v,
+            "2026-09-07",
+            &ObserveInput {
+                title: "Decided KISS port",
+                content: "we port scoring not tantivy",
+                relevance: "high",
+                tags: Some("rust wiki"),
+                source_context: Some("rust-wiki build"),
+            },
+            GateMode::Off,
+        )
+        .unwrap();
         assert!(obs.starts_with("sources/obs-2026-09-07-"));
-        let bad = observe(&v, "2026-09-07", "Bad", "c", "urgent", None, None, GateMode::Off).unwrap_err();
+        let bad = observe(
+            &v,
+            "2026-09-07",
+            &ObserveInput {
+                title: "Bad",
+                content: "c",
+                relevance: "urgent",
+                tags: None,
+                source_context: None,
+            },
+            GateMode::Off,
+        )
+        .unwrap_err();
         assert!(bad.contains("relevance"));
 
         let reg = rebuild_metadata(&v).unwrap();

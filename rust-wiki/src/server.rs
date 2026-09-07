@@ -26,6 +26,7 @@ type Shared = Arc<Hub>;
 
 #[derive(Debug, Deserialize)]
 struct RpcRequest {
+    #[allow(dead_code)] // envelope conformity; we never branch on it
     jsonrpc: String,
     #[serde(default)]
     id: Option<Value>,
@@ -36,6 +37,7 @@ struct RpcRequest {
 
 #[derive(Debug, Serialize)]
 struct RpcResponse {
+    #[allow(dead_code)] // serialized to the wire, never read in-process
     jsonrpc: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<Value>,
@@ -52,17 +54,28 @@ struct RpcError {
 }
 
 fn rpc_ok(id: Option<Value>, result: Value) -> RpcResponse {
-    RpcResponse { jsonrpc: "2.0", id, result: Some(result), error: None }
+    RpcResponse {
+        jsonrpc: "2.0",
+        id,
+        result: Some(result),
+        error: None,
+    }
 }
 fn rpc_err(id: Option<Value>, code: i64, message: String) -> RpcResponse {
-    RpcResponse { jsonrpc: "2.0", id, result: None, error: Some(RpcError { code, message }) }
+    RpcResponse {
+        jsonrpc: "2.0",
+        id,
+        result: None,
+        error: Some(RpcError { code, message }),
+    }
 }
 
 // ---------- tool catalog ----------
 
 /// (name, description, inputSchema) — explicit wire contract.
 fn tools() -> &'static [(&'static str, &'static str, Value)] {
-    static TOOLS: std::sync::OnceLock<Vec<(&'static str, &'static str, Value)>> = std::sync::OnceLock::new();
+    static TOOLS: std::sync::OnceLock<Vec<(&'static str, &'static str, Value)>> =
+        std::sync::OnceLock::new();
     TOOLS.get_or_init(|| vec![
     ("wiki_bootstrap", "Create this project's wiki vault (one-time).", json!({
         "type": "object",
@@ -186,14 +199,21 @@ fn text_result(v: &impl Serialize, is_error: bool) -> Value {
 
 // ---------- dispatch ----------
 
-async fn handle_rpc(State(hub): State<Shared>, headers: HeaderMap, Json(req): Json<RpcRequest>) -> Json<RpcResponse> {
+async fn handle_rpc(
+    State(hub): State<Shared>,
+    headers: HeaderMap,
+    Json(req): Json<RpcRequest>,
+) -> Json<RpcResponse> {
     let id = req.id.clone();
     match req.method.as_str() {
-        "initialize" => Json(rpc_ok(id, json!({
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {"tools": {}},
-            "serverInfo": {"name": "rust-wiki", "version": SERVER_VERSION}
-        }))),
+        "initialize" => Json(rpc_ok(
+            id,
+            json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "rust-wiki", "version": SERVER_VERSION}
+            }),
+        )),
         "notifications/initialized" | "notifications/cancelled" => Json(rpc_ok(None, json!({}))),
         "ping" => Json(rpc_ok(id, json!({}))),
         "tools/list" => {
@@ -216,10 +236,13 @@ async fn handle_rpc(State(hub): State<Shared>, headers: HeaderMap, Json(req): Js
             let result = dispatch(hub.as_ref(), &conn, name, space.as_deref(), &args);
             match result {
                 Ok(v) => Json(rpc_ok(id, text_result(&v, false))),
-                Err(e) => Json(rpc_ok(id, json!({
-                    "content": [{"type": "text", "text": format!("{}: {}", e.code, e.message)}],
-                    "isError": true
-                }))),
+                Err(e) => Json(rpc_ok(
+                    id,
+                    json!({
+                        "content": [{"type": "text", "text": format!("{}: {}", e.code, e.message)}],
+                        "isError": true
+                    }),
+                )),
             }
         }
         other => Json(rpc_err(id, -32601, format!("method not found: {other}"))),
@@ -234,19 +257,32 @@ fn arg_str(args: &Value, key: &str) -> Option<String> {
     args[key].as_str().map(|s| s.to_string())
 }
 
-fn dispatch(hub: &Hub, conn: &str, name: &str, space: Option<&str>, args: &Value) -> Result<Value, crate::api::ApiError> {
+fn dispatch(
+    hub: &Hub,
+    conn: &str,
+    name: &str,
+    space: Option<&str>,
+    args: &Value,
+) -> Result<Value, crate::api::ApiError> {
     macro_rules! need_space {
         () => {
-            space.ok_or_else(|| crate::api::ApiError::invalid("missing 'space' argument (or call wiki_use_space first)"))?
+            space.ok_or_else(|| {
+                crate::api::ApiError::invalid(
+                    "missing 'space' argument (or call wiki_use_space first)",
+                )
+            })?
         };
     }
     match name {
         "wiki_bootstrap" => {
             let s = space.ok_or_else(|| crate::api::ApiError::invalid("missing 'space'"))?;
-            Ok(serde_json::to_value(hub.bootstrap(s, arg_str(args, "topic").as_deref())?)?)
+            Ok(serde_json::to_value(
+                hub.bootstrap(s, arg_str(args, "topic").as_deref())?,
+            )?)
         }
         "wiki_use_space" => {
-            let s = arg_str(args, "space").ok_or_else(|| crate::api::ApiError::invalid("missing 'space'"))?;
+            let s = arg_str(args, "space")
+                .ok_or_else(|| crate::api::ApiError::invalid("missing 'space'"))?;
             Ok(serde_json::to_value(hub.use_space(conn, &s)?)?)
         }
         "wiki_capture_source" => Ok(serde_json::to_value(hub.capture_source(
@@ -259,7 +295,11 @@ fn dispatch(hub: &Hub, conn: &str, name: &str, space: Option<&str>, args: &Value
         "wiki_ingest" => {
             let marks: Vec<String> = args["mark_ingested"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             Ok(serde_json::to_value(hub.ingest(
                 need_space!(),
@@ -274,7 +314,9 @@ fn dispatch(hub: &Hub, conn: &str, name: &str, space: Option<&str>, args: &Value
             args["title"].as_str().unwrap_or(""),
             args["content"].as_str(),
         )?)?),
-        "wiki_read_page" => Ok(serde_json::to_value(hub.read_page(need_space!(), args["id"].as_str().unwrap_or(""))?)?),
+        "wiki_read_page" => Ok(serde_json::to_value(
+            hub.read_page(need_space!(), args["id"].as_str().unwrap_or(""))?,
+        )?),
         "wiki_write_page" => Ok(serde_json::to_value(hub.write_page(
             need_space!(),
             args["id"].as_str().unwrap_or(""),
@@ -291,7 +333,9 @@ fn dispatch(hub: &Hub, conn: &str, name: &str, space: Option<&str>, args: &Value
             args["type"].as_str(),
         )?)?),
         "wiki_status" => Ok(serde_json::to_value(hub.status(need_space!())?)?),
-        "wiki_lint" => Ok(serde_json::to_value(hub.lint(need_space!(), args["auto_fix"].as_bool().unwrap_or(false))?)?),
+        "wiki_lint" => Ok(serde_json::to_value(
+            hub.lint(need_space!(), args["auto_fix"].as_bool().unwrap_or(false))?,
+        )?),
         "wiki_retro" => Ok(serde_json::to_value(hub.retro(
             need_space!(),
             args["slug"].as_str().unwrap_or(""),
@@ -320,12 +364,17 @@ fn dispatch(hub: &Hub, conn: &str, name: &str, space: Option<&str>, args: &Value
             let v = hub.lint(need_space!(), false)?;
             Ok(json!({"pages": v.pages, "rebuilt": true}))
         }
-        other => Err(crate::api::ApiError::new("unknown_tool", format!("unknown tool '{other}'"))),
+        other => Err(crate::api::ApiError::new(
+            "unknown_tool",
+            format!("unknown tool '{other}'"),
+        )),
     }
 }
 
 pub fn router(hub: Hub) -> Router {
-    Router::new().route("/mcp", post(handle_rpc)).with_state(Arc::new(hub))
+    Router::new()
+        .route("/mcp", post(handle_rpc))
+        .with_state(Arc::new(hub))
 }
 
 pub async fn serve(hub: Hub, addr: SocketAddr) -> anyhow::Result<()> {
@@ -349,7 +398,11 @@ mod tests {
     }
 
     fn test_hub(tmp: &std::path::Path) -> Hub {
-        Hub::with_injections(tmp.to_path_buf(), Box::new(StaticFetcher), Box::new(|| "2026-09-07T12:00:00Z".into()))
+        Hub::with_injections(
+            tmp.to_path_buf(),
+            Box::new(StaticFetcher),
+            Box::new(|| "2026-09-07T12:00:00Z".into()),
+        )
     }
 
     async fn rpc(client: &reqwest::Client, url: &str, body: Value) -> Value {
@@ -368,12 +421,25 @@ mod tests {
         let client = reqwest::Client::new();
 
         // initialize
-        let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}})).await;
+        let r = rpc(
+            &client,
+            &url,
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+        )
+        .await;
         assert_eq!(r["result"]["protocolVersion"], PROTOCOL_VERSION);
 
         // tools/list
-        let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})).await;
-        assert_eq!(r["result"]["tools"].as_array().unwrap().len(), tools().len());
+        let r = rpc(
+            &client,
+            &url,
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+        )
+        .await;
+        assert_eq!(
+            r["result"]["tools"].as_array().unwrap().len(),
+            tools().len()
+        );
 
         // bootstrap + use_space
         let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"wiki_bootstrap","arguments":{"space":"proj"}}})).await;
@@ -382,7 +448,10 @@ mod tests {
         assert!(created.contains("\"created\": true"));
 
         let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"wiki_use_space","arguments":{"space":"proj"}}})).await;
-        assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("proj"));
+        assert!(r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("proj"));
 
         // capture + retro via wire
         let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"wiki_capture_source","arguments":{"space":"proj","url":"https://ex.com/x"}}})).await;
@@ -399,10 +468,18 @@ mod tests {
         // error surfaces as isError:true
         let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"wiki_read_page","arguments":{"space":"proj","id":"concepts/missing"}}})).await;
         assert_eq!(r["result"]["isError"], true);
-        assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("not_found"));
+        assert!(r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("not_found"));
 
         // unknown method
-        let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":9,"method":"nope"})).await;
+        let r = rpc(
+            &client,
+            &url,
+            json!({"jsonrpc":"2.0","id":9,"method":"nope"}),
+        )
+        .await;
         assert_eq!(r["error"]["code"], -32601);
     }
 }

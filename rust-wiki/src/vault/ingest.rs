@@ -25,10 +25,15 @@ pub struct Item {
 }
 
 /// Next batch of uningested sources (oldest first).
-pub fn next_batch(vault: &VaultPaths, source_id: Option<&str>, batch_size: Option<u32>) -> Result<Batch, String> {
-    let size = batch_size.unwrap_or(DEFAULT_BATCH).min(MAX_BATCH).max(1) as usize;
+pub fn next_batch(
+    vault: &VaultPaths,
+    source_id: Option<&str>,
+    batch_size: Option<u32>,
+) -> Result<Batch, String> {
+    let size = batch_size.unwrap_or(DEFAULT_BATCH).clamp(1, MAX_BATCH) as usize;
     let read_extracted = |sid: &str| {
-        std::fs::read_to_string(vault.raw_sources().join(sid).join("extracted.md")).unwrap_or_default()
+        std::fs::read_to_string(vault.raw_sources().join(sid).join("extracted.md"))
+            .unwrap_or_default()
     };
     let pending = capture::pending(vault)?;
     let items: Vec<Item> = match source_id {
@@ -85,10 +90,15 @@ mod tests {
     fn batch_respects_size_and_marks_progress() {
         let (_t, v) = setup();
         for i in 1..=4 {
-            capture::capture(&v, "2026-09-07", "t", capture::CaptureInput::Text {
-                title: Some(format!("Source {i}")),
-                text: format!("body {i}"),
-            })
+            capture::capture(
+                &v,
+                "2026-09-07",
+                "t",
+                capture::CaptureInput::Text {
+                    title: Some(format!("Source {i}")),
+                    text: format!("body {i}"),
+                },
+            )
             .unwrap();
         }
         let b1 = next_batch(&v, None, None).unwrap();
@@ -98,11 +108,27 @@ mod tests {
         // batch carries the full extracted content for synthesis
         assert!(b1.items[0].extracted.contains("body 1"));
 
-        capture::mark_ingested(&v, &b1.items.iter().map(|i| i.source_id.clone()).collect::<Vec<_>>(), "t").unwrap();
+        capture::mark_ingested(
+            &v,
+            &b1.items
+                .iter()
+                .map(|i| i.source_id.clone())
+                .collect::<Vec<_>>(),
+            "t",
+        )
+        .unwrap();
         let b2 = next_batch(&v, None, None).unwrap();
         assert_eq!(b2.items.len(), 1);
 
-        capture::mark_ingested(&v, &b2.items.iter().map(|i| i.source_id.clone()).collect::<Vec<_>>(), "t").unwrap();
+        capture::mark_ingested(
+            &v,
+            &b2.items
+                .iter()
+                .map(|i| i.source_id.clone())
+                .collect::<Vec<_>>(),
+            "t",
+        )
+        .unwrap();
         let b3 = next_batch(&v, None, None).unwrap();
         assert!(b3.all_ingested);
         assert!(b3.items.is_empty());

@@ -16,16 +16,19 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self {
+            code,
+            message: message.into(),
+        }
     }
     pub fn no_vault(space: &str) -> Self {
-        Self::new("no_vault", format!("no vault for space '{space}' — call wiki_bootstrap first"))
+        Self::new(
+            "no_vault",
+            format!("no vault for space '{space}' — call wiki_bootstrap first"),
+        )
     }
     pub fn invalid(msg: impl Into<String>) -> Self {
         Self::new("invalid_argument", msg)
-    }
-    pub fn guarded(msg: impl Into<String>) -> Self {
-        Self::new("guardrail", msg)
     }
 }
 
@@ -34,8 +37,6 @@ impl From<serde_json::Error> for ApiError {
         Self::new("serialize", e.to_string())
     }
 }
-
-
 
 // ---------- DTOs ----------
 
@@ -170,28 +171,62 @@ pub struct LogEventOut {
     pub kind: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct OkOut {
-    pub ok: bool,
-}
-
 /// The seam trait. All ops are space-aware; `space` explicitly provided
 /// overrides the connection default held by the impl.
 pub trait WikiApi: Send + Sync {
     fn bootstrap(&self, space: &str, mode: Option<&str>) -> ApiResult<BootstrapOut>;
     /// Pin `space` as the default for connection `conn`. Returns summary.
     fn use_space(&self, conn: &str, space: &str) -> ApiResult<UseSpaceOut>;
-    fn capture_source(&self, space: &str, text: Option<&str>, url: Option<&str>, file_path: Option<&str>, title: Option<&str>) -> ApiResult<CaptureOut>;
+    fn capture_source(
+        &self,
+        space: &str,
+        text: Option<&str>,
+        url: Option<&str>,
+        file_path: Option<&str>,
+        title: Option<&str>,
+    ) -> ApiResult<CaptureOut>;
     /// `mark_ingested`: source ids to flip into ingested state (post-synthesis).
-    fn ingest(&self, space: &str, source_id: Option<&str>, batch_size: Option<u32>, mark_ingested: &[String]) -> ApiResult<IngestOut>;
-    fn ensure_page(&self, space: &str, page_type: &str, title: &str, content: Option<&str>) -> ApiResult<EnsurePageOut>;
+    fn ingest(
+        &self,
+        space: &str,
+        source_id: Option<&str>,
+        batch_size: Option<u32>,
+        mark_ingested: &[String],
+    ) -> ApiResult<IngestOut>;
+    fn ensure_page(
+        &self,
+        space: &str,
+        page_type: &str,
+        title: &str,
+        content: Option<&str>,
+    ) -> ApiResult<EnsurePageOut>;
     fn read_page(&self, space: &str, id: &str) -> ApiResult<ReadPageOut>;
     fn write_page(&self, space: &str, id: &str, content: &str) -> ApiResult<WritePageOut>;
     fn recall(&self, space: &str, query: &str, max_results: Option<u32>) -> ApiResult<RecallOut>;
     fn search(&self, space: &str, query: &str, page_type: Option<&str>) -> ApiResult<SearchOut>;
     fn status(&self, space: &str) -> ApiResult<StatusOut>;
     fn lint(&self, space: &str, auto_fix: bool) -> ApiResult<LintOut>;
-    fn retro(&self, space: &str, slug: &str, title: &str, body: &str, category: Option<&str>) -> ApiResult<RetroOut>;
-    fn observe(&self, space: &str, title: &str, content: &str, relevance: &str, tags: Option<&str>, source_context: Option<&str>) -> ApiResult<ObserveOut>;
-    fn log_event(&self, space: &str, kind: &str, details: &serde_json::Value) -> ApiResult<LogEventOut>;
+    fn retro(
+        &self,
+        space: &str,
+        slug: &str,
+        title: &str,
+        body: &str,
+        category: Option<&str>,
+    ) -> ApiResult<RetroOut>;
+    fn observe(
+        &self,
+        space: &str,
+        title: &str,
+        content: &str,
+        relevance: &str,
+        tags: Option<&str>,
+        source_context: Option<&str>,
+    ) -> ApiResult<ObserveOut>;
+    fn log_event(
+        &self,
+        space: &str,
+        kind: &str,
+        details: &serde_json::Value,
+    ) -> ApiResult<LogEventOut>;
 }

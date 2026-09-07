@@ -38,13 +38,15 @@ pub struct Registry {
 // ---------- markdown parsing ----------
 
 /// Split `---\n...\n---` frontmatter from body. Returns (fm_yaml, body).
-fn split_frontmatter(text: &str) -> (Option<&str>, &str) {
+pub(crate) fn split_frontmatter(text: &str) -> (Option<&str>, &str) {
     let t = text.trim_start();
     if let Some(rest) = t.strip_prefix("---\n") {
         if let Some(end) = rest.find("\n---") {
             let fm = &rest[..end];
             let body_start = end + 4; // "\n---"
-            let body = rest[body_start..].strip_prefix('\n').unwrap_or(&rest[body_start..]);
+            let body = rest[body_start..]
+                .strip_prefix('\n')
+                .unwrap_or(&rest[body_start..]);
             return (Some(fm), body);
         }
     }
@@ -114,6 +116,7 @@ fn first_heading_or(body: &str, fallback: &str) -> String {
 }
 
 fn excerpt_of(body: &str, max: usize) -> String {
+    let (_, body) = split_frontmatter(body);
     let text: String = body
         .lines()
         .filter(|l| !l.trim_start().starts_with('#'))
@@ -152,10 +155,29 @@ pub fn rebuild_metadata(vault: &VaultPaths) -> Result<Registry, String> {
         p.links.sort();
     }
 
+    let inbound = inbound_links(&registry);
     write_json(&vault.registry_file(), &registry)?;
-    write_backlinks(&vault, &registry)?;
-    write_index(&vault, &registry)?;
+    write_json(&vault.backlinks_file(), &inbound)?;
+    write_index(vault, &registry)?;
     Ok(registry)
+}
+
+/// Inbound-link map (page id -> citing ids), the single source of truth
+/// for backlinks.json, status orphans, and lint. Sorted for determinism.
+pub fn inbound_links(registry: &Registry) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut inbound: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for page in registry.pages.values() {
+        for target in &page.links {
+            let v = inbound.entry(target.clone()).or_default();
+            if !v.contains(&page.id) {
+                v.push(page.id.clone());
+            }
+        }
+    }
+    for v in inbound.values_mut() {
+        v.sort();
+    }
+    inbound
 }
 
 fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Result<(), String> {
@@ -172,18 +194,29 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
         if path.is_dir() {
             collect_pages(vault, &path, registry)?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            let Some(id) = page_id_of(vault, &path) else { continue };
-            let text = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+            let Some(id) = page_id_of(vault, &path) else {
+                continue;
+            };
+            let text =
+                fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
             let (fm, body) = split_frontmatter(&text);
             let folder = id.split('/').next().unwrap_or("pages");
-            let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("page").to_string();
+            let file_stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("page")
+                .to_string();
             let title = fm
                 .and_then(|f| fm_scalar(f, "title"))
                 .unwrap_or_else(|| first_heading_or(body, &file_stem));
             let page_type = fm
                 .and_then(|f| fm_scalar(f, "type"))
                 .unwrap_or_else(|| folder.trim_end_matches('s').to_string());
-            let source_id = if folder == "sources" { Some(file_stem.clone()) } else { None };
+            let source_id = if folder == "sources" {
+                Some(file_stem.clone())
+            } else {
+                None
+            };
             registry.pages.insert(
                 id.clone(),
                 PageEntry {
@@ -203,19 +236,6 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
         }
     }
     Ok(())
-}
-
-fn write_backlinks(vault: &VaultPaths, registry: &Registry) -> Result<(), String> {
-    let mut backlinks: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for page in registry.pages.values() {
-        for target in &page.links {
-            backlinks.entry(target.clone()).or_default().push(page.id.clone());
-        }
-    }
-    for v in backlinks.values_mut() {
-        v.sort();
-    }
-    write_json(&vault.backlinks_file(), &backlinks)
 }
 
 fn write_index(vault: &VaultPaths, registry: &Registry) -> Result<(), String> {
@@ -242,7 +262,12 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
 // ---------- events ----------
 
 /// Append a structured event to the authoritative events.jsonl stream.
-pub fn log_event(vault: &VaultPaths, kind: &str, details: &serde_json::Value, now_iso: &str) -> Result<(), String> {
+pub fn log_event(
+    vault: &VaultPaths,
+    kind: &str,
+    details: &serde_json::Value,
+    now_iso: &str,
+) -> Result<(), String> {
     use std::io::Write;
     let event = serde_json::json!({ "ts": now_iso, "kind": kind, "details": details });
     let mut f = fs::OpenOptions::new()
@@ -257,15 +282,17 @@ pub fn log_event(vault: &VaultPaths, kind: &str, details: &serde_json::Value, no
 pub fn rebuild_log(vault: &VaultPaths) -> Result<(), String> {
     let mut out = String::from("# Log\n\n");
     if vault.events_file().exists() {
-        let raw = fs::read_to_string(vault.events_file()).map_err(|e| format!("read events: {e}"))?;
+        let raw =
+            fs::read_to_string(vault.events_file()).map_err(|e| format!("read events: {e}"))?;
         for line in raw.lines() {
             if line.trim().is_empty() {
                 continue;
             }
-            let v: serde_json::Value = serde_json::from_str(line).map_err(|e| format!("parse event: {e}"))?;
+            let v: serde_json::Value =
+                serde_json::from_str(line).map_err(|e| format!("parse event: {e}"))?;
             let ts = v["ts"].as_str().unwrap_or("?");
             let kind = v["kind"].as_str().unwrap_or("?");
-            out.push_str(&format!("- `{ts}` {kind} {v}\n", v = &v["details"]));
+            out.push_str(&format!("- `{ts}` {kind} {}\n", v["details"]));
         }
     }
     fs::write(vault.log_file(), out).map_err(|e| format!("write log: {e}"))
@@ -296,7 +323,11 @@ mod tests {
             "concepts/rag",
             "---\ntitle: RAG\ntype: concept\n---\n\nRetrieval augmented generation. See [[entities/acme]] and [guide](/analyses/how-rag.md).\n\nBody text for the excerpt.",
         );
-        write_page(&v, "entities/acme", "# Acme\n\nVendor. Referenced by [[concepts/rag]].\n");
+        write_page(
+            &v,
+            "entities/acme",
+            "# Acme\n\nVendor. Referenced by [[concepts/rag]].\n",
+        );
         let reg = rebuild_metadata(&v).unwrap();
         assert_eq!(reg.pages.len(), 2);
         let rag = &reg.pages["concepts/rag"];
@@ -320,14 +351,31 @@ mod tests {
         // source pages carry source_id
         write_page(&v, "sources/SRC-2026-09-06-001", "# A source\n\nclaims\n");
         let reg2 = rebuild_metadata(&v).unwrap();
-        assert_eq!(reg2.pages["sources/SRC-2026-09-06-001"].source_id.as_deref(), Some("SRC-2026-09-06-001"));
+        assert_eq!(
+            reg2.pages["sources/SRC-2026-09-06-001"]
+                .source_id
+                .as_deref(),
+            Some("SRC-2026-09-06-001")
+        );
     }
 
     #[test]
     fn events_append_and_log_projection() {
         let (_tmp, v) = setup_vault();
-        log_event(&v, "ingest", &serde_json::json!({"source":"SRC-1"}), "2026-09-06T01:00:00Z").unwrap();
-        log_event(&v, "retro", &serde_json::json!({"slug":"jwt-fix"}), "2026-09-06T02:00:00Z").unwrap();
+        log_event(
+            &v,
+            "ingest",
+            &serde_json::json!({"source":"SRC-1"}),
+            "2026-09-06T01:00:00Z",
+        )
+        .unwrap();
+        log_event(
+            &v,
+            "retro",
+            &serde_json::json!({"slug":"jwt-fix"}),
+            "2026-09-06T02:00:00Z",
+        )
+        .unwrap();
         rebuild_log(&v).unwrap();
         let log = fs::read_to_string(v.log_file()).unwrap();
         assert!(log.contains("`2026-09-06T01:00:00Z` ingest"));

@@ -3,7 +3,6 @@
 //! A faithful-but-KISS port of zosmaai's recall intent.
 
 use std::fs;
-use std::path::Path;
 
 use super::layout::VaultPaths;
 use super::registry::{rebuild_metadata, Registry};
@@ -44,7 +43,11 @@ fn field_score(tokens: &[String], field: &str, weight: f64) -> f64 {
 }
 
 fn chunks_of(text: &str) -> Vec<String> {
-    let body: Vec<&str> = text.lines().filter(|l| !l.trim_start().starts_with('#')).collect();
+    let (_, body) = super::registry::split_frontmatter(text);
+    let body: Vec<&str> = body
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect();
     let joined = body.join("\n");
     if joined.is_empty() {
         return vec![];
@@ -71,16 +74,31 @@ pub struct RecallHit {
 }
 
 /// Recall within ONE vault directory (space or personal).
-fn recall_one(vault: &VaultPaths, query: &str, max_results: u32, layer: Option<&str>) -> Vec<RecallHit> {
+fn recall_one(
+    vault: &VaultPaths,
+    query: &str,
+    max_results: u32,
+    layer: Option<&str>,
+) -> Vec<RecallHit> {
     if !vault.registry_file().exists() {
         return vec![];
     }
-    let Ok(raw) = fs::read_to_string(vault.registry_file()) else { return vec![] };
-    let Ok(registry) = serde_json::from_str::<Registry>(&raw) else { return vec![] };
+    let Ok(raw) = fs::read_to_string(vault.registry_file()) else {
+        return vec![];
+    };
+    let Ok(registry) = serde_json::from_str::<Registry>(&raw) else {
+        return vec![];
+    };
     recall_registry(vault, &registry, query, max_results, layer)
 }
 
-pub fn recall_registry(vault: &VaultPaths, registry: &Registry, query: &str, max_results: u32, layer: Option<&str>) -> Vec<RecallHit> {
+pub fn recall_registry(
+    vault: &VaultPaths,
+    registry: &Registry,
+    query: &str,
+    max_results: u32,
+    layer: Option<&str>,
+) -> Vec<RecallHit> {
     let mut tokens = tokenize(query);
     if tokens.is_empty() {
         return vec![];
@@ -105,7 +123,9 @@ pub fn recall_registry(vault: &VaultPaths, registry: &Registry, query: &str, max
     if scored.len() >= PRF_DOCS {
         let mut extra: Vec<String> = Vec::new();
         for (_, p) in scored.iter().take(PRF_DOCS) {
-            let Ok(text) = fs::read_to_string(vault.space_root.join(&p.path)) else { continue };
+            let Ok(text) = fs::read_to_string(vault.space_root.join(&p.path)) else {
+                continue;
+            };
             let mut doc = tokenize(&text);
             doc.retain(|t| !tokens.contains(t));
             doc.sort();
@@ -206,21 +226,6 @@ pub fn ensure_registry(vault: &VaultPaths) -> Result<Registry, String> {
     rebuild_metadata(vault)
 }
 
-/// Path guard: only serve pages inside wiki/**.
-pub fn readable_page(vault: &VaultPaths, id: &str) -> Result<std::path::PathBuf, String> {
-    let p = vault.page_path(id);
-    let canon_id = super::super::vault::layout::Ownership::Wiki; // marker only, see ownership()
-    let _ = canon_id;
-    if id.contains("..") {
-        return Err(format!("invalid page id '{id}'"));
-    }
-    if !p.exists() {
-        return Err(format!("page '{id}' not found"));
-    }
-    let _ = Path::new(&p).is_file();
-    Ok(p)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,8 +247,16 @@ mod tests {
     #[test]
     fn title_hit_beats_body_hit_and_layering_dedups() {
         let (_t, v) = setup();
-        page(&v, "concepts/rag", "# RAG\n\nretrieval augmented generation overview\n");
-        page(&v, "concepts/llm-basics", "# LLM Basics\n\nmentions rag once in body\n");
+        page(
+            &v,
+            "concepts/rag",
+            "# RAG\n\nretrieval augmented generation overview\n",
+        );
+        page(
+            &v,
+            "concepts/llm-basics",
+            "# LLM Basics\n\nmentions rag once in body\n",
+        );
         page(&v, "entities/unrelated", "# Vendor\n\nnothing here\n");
         let reg = rebuild_metadata(&v).unwrap();
 
@@ -257,14 +270,21 @@ mod tests {
         let pv = VaultPaths::new(tmp2.path(), "personal");
         bootstrap(&pv, "t0").unwrap();
         page(&pv, "concepts/rag", "# RAG\n\nduplicate id in personal\n");
-        page(&pv, "concepts/private-note", "# Private\n\nrag notes personal only\n");
+        page(
+            &pv,
+            "concepts/private-note",
+            "# Private\n\nrag notes personal only\n",
+        );
         let reg_p = rebuild_metadata(&pv).unwrap();
         let _ = reg_p;
         let (merged, links_first) = recall_layered(&v, Some(&pv), &reg, "rag", 5);
         assert!(!links_first);
         assert_eq!(merged[0].id, "concepts/rag");
         assert!(merged[0].layer.is_none()); // space layer wins
-        let personal = merged.iter().find(|h| h.layer.as_deref() == Some("personal")).expect("personal hit present");
+        let personal = merged
+            .iter()
+            .find(|h| h.layer.as_deref() == Some("personal"))
+            .expect("personal hit present");
         assert_eq!(personal.id, "concepts/private-note"); // dup id dropped
     }
 
@@ -272,7 +292,11 @@ mod tests {
     fn links_first_gate_trims_previews() {
         let (_t, v) = setup();
         for i in 0..60 {
-            page(&v, &format!("concepts/page-{i}"), &format!("# P{i}\n\ncommon rag token {i}\n"));
+            page(
+                &v,
+                &format!("concepts/page-{i}"),
+                &format!("# P{i}\n\ncommon rag token {i}\n"),
+            );
         }
         let reg = rebuild_metadata(&v).unwrap();
         let (hits, links_first) = recall_layered(&v, None, &reg, "rag", 5);

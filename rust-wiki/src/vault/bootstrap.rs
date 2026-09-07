@@ -32,17 +32,35 @@ struct VaultConfig<'a> {
 }
 
 const TEMPLATES: &[(&str, &str)] = &[
-    ("concept", "# {title}\n\n## Summary\n\n\n## Details\n\n\n## Related\n\n"),
-    ("entity", "# {title}\n\n## What it is\n\n\n## Notes\n\n\n## Related\n\n"),
-    ("synthesis", "# {title}\n\n## Thesis\n\n\n## Tensions\n\n\n## Sources\n\n"),
-    ("analysis", "# {title}\n\n## Question\n\n\n## Answer\n\n\n## Sources\n\n"),
-    ("source", "# {title}\n\nSource: \n\n## Key claims\n\n\n## Quotes\n\n"),
+    (
+        "concept",
+        "# {title}\n\n## Summary\n\n\n## Details\n\n\n## Related\n\n",
+    ),
+    (
+        "entity",
+        "# {title}\n\n## What it is\n\n\n## Notes\n\n\n## Related\n\n",
+    ),
+    (
+        "synthesis",
+        "# {title}\n\n## Thesis\n\n\n## Tensions\n\n\n## Sources\n\n",
+    ),
+    (
+        "analysis",
+        "# {title}\n\n## Question\n\n\n## Answer\n\n\n## Sources\n\n",
+    ),
+    (
+        "source",
+        "# {title}\n\nSource: \n\n## Key claims\n\n\n## Quotes\n\n",
+    ),
 ];
 
 /// Create the vault at `vault` if missing. Existing files are never overwritten.
 pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, BootstrapError> {
     if vault.config_file().exists() {
-        return Ok(BootstrapResult { created: false, space: space_name(vault) });
+        return Ok(BootstrapResult {
+            created: false,
+            space: space_name(vault),
+        });
     }
     let dirs = [
         vault.templates(),
@@ -57,7 +75,8 @@ pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, B
         vault.discoveries(),
     ];
     for d in &dirs {
-        fs::create_dir_all(d).map_err(|e| BootstrapError(format!("create_dir_all {}: {e}", d.display())))?;
+        fs::create_dir_all(d)
+            .map_err(|e| BootstrapError(format!("create_dir_all {}: {e}", d.display())))?;
     }
     let config = VaultConfig {
         space: &space_name(vault),
@@ -74,7 +93,10 @@ pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, B
     for (name, body) in TEMPLATES {
         write_if_absent(&vault.templates().join(format!("{name}.md")), body)?;
     }
-    Ok(BootstrapResult { created: true, space: space_name(vault) })
+    Ok(BootstrapResult {
+        created: true,
+        space: space_name(vault),
+    })
 }
 
 fn space_name(vault: &VaultPaths) -> String {

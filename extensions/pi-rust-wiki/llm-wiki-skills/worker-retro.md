@@ -28,8 +28,9 @@ questions, never commit to git, wiki writes only.
 6. Finish with a one-line summary to stdout, then notify the main
    session: `intercom` tool, `action: "send"`, `cwd:` your working
    directory, message:
-   `Crystallize complete: <N> pages (<ids>); lint: <X> errors; status: <health>`
-   Fire-and-forget; do not wait for a reply.
+   `Retro complete: <N> pages (<ids>); lint: <X> errors; status: <health>`
+   Quote the log path exactly as it appears in your launch command's
+   redirect. Fire-and-forget; do not wait for a reply.
 
 ## Rules
 
