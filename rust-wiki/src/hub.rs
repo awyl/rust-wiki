@@ -45,6 +45,7 @@ pub struct Hub {
     root: PathBuf,
     conns: Mutex<HashMap<String, String>>,
     fetch: Box<dyn UrlFetcher>,
+    embedder: Option<Box<dyn crate::vault::embeddings::Embedder>>,
     now: Box<dyn Fn() -> String + Send + Sync>,
 }
 
@@ -54,6 +55,7 @@ impl Hub {
             root,
             conns: Mutex::new(HashMap::new()),
             fetch: Box::new(HttpFetcher),
+            embedder: crate::vault::embeddings::from_env(),
             now: Box::new(|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
         }
     }
@@ -68,6 +70,7 @@ impl Hub {
             root,
             conns: Mutex::new(HashMap::new()),
             fetch,
+            embedder: None,
             now,
         }
     }
@@ -411,6 +414,23 @@ impl WikiApi for Hub {
         Ok(LogEventOut {
             kind: kind.to_string(),
         })
+    }
+
+    fn reembed(&self, space: &str) -> ApiResult<ReembedOut> {
+        let v = self.target(Some(space), Some(space))?;
+        match &self.embedder {
+            None => Ok(ReembedOut {
+                embedded: 0,
+                provider_configured: false,
+                message: "no embedding provider configured (set WIKI_EMBEDDING_URL + WIKI_EMBEDDING_MODEL); recall remains lexical".into(),
+            }),
+            Some(embedder) => {
+                let reg = vr::ensure_registry(&v).map_err(|e| ApiError::new("io", e))?;
+                let n = crate::vault::embeddings::reindex(&v, &reg, embedder.as_ref())
+                    .map_err(|e| ApiError::new("embedding_failed", e))?;
+                Ok(ReembedOut { embedded: n as u64, provider_configured: true, message: format!("embedded {n} pages with {}", embedder.model()) })
+            }
+        }
     }
 }
 

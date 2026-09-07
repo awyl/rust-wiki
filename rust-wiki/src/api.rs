@@ -171,6 +171,13 @@ pub struct LogEventOut {
     pub kind: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ReembedOut {
+    pub embedded: u64,
+    pub provider_configured: bool,
+    pub message: String,
+}
+
 /// The seam trait. All ops are space-aware; `space` explicitly provided
 /// overrides the connection default held by the impl.
 pub trait WikiApi: Send + Sync {
@@ -229,4 +236,5 @@ pub trait WikiApi: Send + Sync {
         kind: &str,
         details: &serde_json::Value,
     ) -> ApiResult<LogEventOut>;
+    fn reembed(&self, space: &str) -> ApiResult<ReembedOut>;
 }

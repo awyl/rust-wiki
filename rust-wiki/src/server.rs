@@ -187,6 +187,10 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "properties": {"space": {"type": "string"}, "schedule": {"type": "string", "enum": ["hourly", "daily", "weekly"]}},
         "required": ["schedule"]
     })),
+    ("wiki_reindex_embeddings", "Re-embed all pages for semantic recall (no-op message when no embedding provider is configured).", json!({
+        "type": "object",
+        "properties": {"space": {"type": "string"}}
+    })),
     ("wiki_log_event", "Append a structured event to the activity stream.", json!({
         "type": "object",
         "properties": {"space": {"type": "string"}, "kind": {"type": "string"}, "details": {"type": "object"}},
@@ -364,6 +368,7 @@ fn dispatch(
                 &details,
             )?)?)
         }
+        "wiki_reindex_embeddings" => Ok(serde_json::to_value(hub.reembed(need_space!())?)?),
         "wiki_watch" => {
             let schedule = args["schedule"].as_str().unwrap_or("daily");
             let exe = std::env::current_exe()

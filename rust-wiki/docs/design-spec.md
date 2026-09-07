@@ -223,7 +223,22 @@ folders open as a vault. Space bootstrap additionally writes a README.md
 at the space root documenting the layout. No .obsidian/ generation —
 Obsidian creates its own config on first open.
 
+## Embeddings (2026-09-07, pulled forward from deferred)
+
+Optional semantic layer over the lexical engine:
+
+- Provider: OpenAI-compatible `POST {WIKI_EMBEDDING_URL}/embeddings`
+  with `WIKI_EMBEDDING_MODEL` (+ optional `WIKI_EMBEDDING_TOKEN`).
+  Configured via env only; absent = feature off with a clean no-op from
+  `wiki_reindex_embeddings`.
+- Store: `meta/embeddings.json` — `{model, pages: {id: [f32]}}`, one
+  vector per page over title+id+excerpt.
+- Blend: `wiki_recall` embeds the query (one call) when provider AND
+  store exist; score *= 1 + max(0, cosine) * 0.5, re-sorted. No store or
+  no provider -> pure lexical, silently.
+- Chunk-level vectors and trust-weighted scoring remain future work.
+
 ## Non-goals (v1)
 
-Auth, embeddings (pulled forward 2026-09-07 — see below), trajectories/
-working-memory (still deferred), multi-user/quotas, data migration.
+Auth, trajectories/working-memory (deferred again 2026-09-07),
+multi-user/quotas, data migration.

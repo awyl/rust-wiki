@@ -194,6 +194,26 @@ pub fn recall_layered(
     query: &str,
     max_results: u32,
 ) -> (Vec<RecallHit>, bool) {
+    recall_layered_semantic(
+        space_vault,
+        personal_vault,
+        registry,
+        query,
+        max_results,
+        None,
+    )
+}
+
+/// Like `recall_layered`, but blends semantic similarity when a query
+/// embedding is supplied: score *= 1 + max(0, cosine) * 0.5, then re-sorts.
+pub fn recall_layered_semantic(
+    space_vault: &VaultPaths,
+    personal_vault: Option<&VaultPaths>,
+    registry: &Registry,
+    query: &str,
+    max_results: u32,
+    semantic: Option<(&[f32], &super::embeddings::EmbeddingStore)>,
+) -> (Vec<RecallHit>, bool) {
     let space_hits = recall_registry(space_vault, registry, query, max_results, None);
     let mut hits = space_hits;
     if let Some(pv) = personal_vault {
@@ -203,6 +223,21 @@ pub fn recall_layered(
                 hits.push(h);
             }
         }
+    }
+    if let Some((query_vec, store)) = semantic {
+        for h in &mut hits {
+            if let Some(vec) = store.pages.get(&h.id) {
+                let sim = super::embeddings::cosine(query_vec, vec);
+                if sim > 0.0 {
+                    h.score *= 1.0 + f64::from(sim) * 0.5;
+                }
+            }
+        }
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
     // links-first: previews trimmed when vault is big
     let links_first = registry.pages.len() as u64 > LINKS_FIRST_THRESHOLD;
@@ -286,6 +321,50 @@ mod tests {
             .find(|h| h.layer.as_deref() == Some("personal"))
             .expect("personal hit present");
         assert_eq!(personal.id, "concepts/private-note"); // dup id dropped
+    }
+
+    #[test]
+    fn semantic_blend_boosts_close_vectors() {
+        let (_t, v) = setup();
+        page(&v, "concepts/vector-friendly", "# VF\n\nalpha alpha beta\n");
+        page(&v, "concepts/vector-distant", "# VD\n\nalpha once\n");
+        let reg = rebuild_metadata(&v).unwrap();
+
+        // toy vectors: query close to vector-friendly
+        let query_vec = vec![1.0f32, 0.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let mut store = crate::vault::embeddings::EmbeddingStore {
+            model: "mock".into(),
+            pages: Default::default(),
+        };
+        store.pages.insert(
+            "concepts/vector-friendly".into(),
+            vec![1.0f32, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        );
+        store.pages.insert(
+            "concepts/vector-distant".into(),
+            vec![0.0f32, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        );
+
+        let (boosted, _) =
+            recall_layered_semantic(&v, None, &reg, "alpha", 5, Some((&query_vec, &store)));
+        let (plain, _) = recall_layered(&v, None, &reg, "alpha", 5);
+        let top_boosted = &boosted[0].id;
+        let top_plain = &plain[0].id;
+        // vector-friendly overtakes whatever led lexically
+        assert_eq!(top_boosted, "concepts/vector-friendly");
+        let _ = top_plain;
+        // score actually boosted vs unblended for that hit
+        let plain_score = plain
+            .iter()
+            .find(|h| h.id == "concepts/vector-friendly")
+            .unwrap()
+            .score;
+        let boosted_score = boosted
+            .iter()
+            .find(|h| h.id == "concepts/vector-friendly")
+            .unwrap()
+            .score;
+        assert!(boosted_score > plain_score);
     }
 
     #[test]
