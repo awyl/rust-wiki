@@ -210,6 +210,10 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
             let Some(id) = page_id_of(vault, &path) else {
                 continue;
             };
+            // reserved generated files are never concept pages
+            if id == "index" || id == "log" || id.ends_with("/index") {
+                continue;
+            }
             let text =
                 fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
             let (fm, body) = split_frontmatter(&text);

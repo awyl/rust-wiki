@@ -182,6 +182,11 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "type": "object",
         "properties": {"space": {"type": "string"}}
     })),
+    ("wiki_watch", "Print a crontab line for scheduled maintenance (hourly | daily | weekly) — does not install it.", json!({
+        "type": "object",
+        "properties": {"space": {"type": "string"}, "schedule": {"type": "string", "enum": ["hourly", "daily", "weekly"]}},
+        "required": ["schedule"]
+    })),
     ("wiki_log_event", "Append a structured event to the activity stream.", json!({
         "type": "object",
         "properties": {"space": {"type": "string"}, "kind": {"type": "string"}, "details": {"type": "object"}},
@@ -358,6 +363,15 @@ fn dispatch(
                 args["kind"].as_str().unwrap_or(""),
                 &details,
             )?)?)
+        }
+        "wiki_watch" => {
+            let schedule = args["schedule"].as_str().unwrap_or("daily");
+            let exe = std::env::current_exe()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| "rust-wiki".into());
+            let line = crate::vault::watch::crontab_line(need_space!(), schedule, &exe)
+                .map_err(crate::api::ApiError::invalid)?;
+            Ok(json!({"crontab": line}))
         }
         "wiki_rebuild_meta" => {
             // lint(false) rebuilds + reports; a pure rebuild: status computes from fresh registry
