@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ensureWikiReady } from "../extensions/llm-wiki-skills/lib/bootstrap.js";
+import { ensureWikiReady } from "../llm-wiki-skills/lib/bootstrap.js";
 
 const URL_ = "http://mcp.test/mcp";
 

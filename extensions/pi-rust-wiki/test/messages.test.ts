@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildCrystallizeDirective, buildResearchNudge } from "../extensions/llm-wiki-skills/lib/messages.js";
+import { buildCrystallizeDirective, buildResearchNudge } from "../llm-wiki-skills/lib/messages.js";
 
 const WORKER_PROMPT_PATH = "/abs/extensions/llm-wiki-skills/worker-crystallize.md";
 const SKILL_PATH = "/abs/skills/crystallize/SKILL.md";
@@ -44,7 +44,7 @@ describe("directive builders", () => {
   });
 
   it("worker-crystallize.md ships the full unattended procedure", () => {
-    const file = readFileSync(join(__dirname, "../extensions/llm-wiki-skills/worker-crystallize.md"), "utf-8");
+    const file = readFileSync(join(__dirname, "../llm-wiki-skills/worker-crystallize.md"), "utf-8");
     expect(file).toContain("AUTO-WRITE");
     expect(file).toContain("wiki_index_rebuild");
     expect(file).toContain("wiki_ingest");

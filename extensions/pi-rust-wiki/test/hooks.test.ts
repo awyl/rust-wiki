@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildResearchNudge } from "../extensions/llm-wiki-skills/lib/messages.js";
-import type { BootstrapResult } from "../extensions/llm-wiki-skills/lib/bootstrap.js";
+import { buildResearchNudge } from "../llm-wiki-skills/lib/messages.js";
+import type { BootstrapResult } from "../llm-wiki-skills/lib/bootstrap.js";
 
 type Handler = (event: any, ctx: any) => Promise<any>;
 
@@ -42,7 +42,7 @@ function recorder(results: BootstrapResult[] = [{ space: "ok", index: "ok", deta
 }
 
 async function loadExtension(deps: Record<string, unknown> = {}) {
-  const mod = await import("../extensions/llm-wiki-skills/index.js");
+  const mod = await import("../llm-wiki-skills/index.js");
   const fake = createFakePi();
   mod.default(fake.pi as ExtensionAPI, deps);
   return { ...fake };
@@ -205,7 +205,7 @@ describe("crystallize", () => {
 
 describe("worker file", () => {
   it("worker-crystallize.md ships the full unattended procedure", () => {
-    const file = readFileSync(join(__dirname, "../extensions/llm-wiki-skills/worker-crystallize.md"), "utf-8");
+    const file = readFileSync(join(__dirname, "../llm-wiki-skills/worker-crystallize.md"), "utf-8");
     expect(file).toContain("AUTO-WRITE");
     expect(file).toContain("wiki_index_rebuild");
     expect(file).toContain("wiki_ingest");

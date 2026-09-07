@@ -1,4 +1,4 @@
-# pi-llm-wiki-autopilot
+# pi-rust-wiki
 
 Autonomous [llm-wiki-skills](https://github.com/geronimo-iia/llm-wiki-skills) triggers for
 [pi](https://github.com/badlogic/pi-mono). Requires a connected llm-wiki MCP server (`wiki_*` tools).
@@ -17,7 +17,7 @@ All 17 upstream skills are vendored and load natively — `/skill:research`, `/s
 
 ```bash
 # after pushing this repo:
-pi install git:github.com/<you>/pi-llm-wiki-autopilot
+pi install git:github.com/<you>/pi-rust-wiki
 # local development install:
 pi install /work
 ```

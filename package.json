@@ -1,21 +1,9 @@
 {
-  "name": "pi-llm-wiki-autopilot",
-  "version": "0.4.0",
-  "description": "Autonomous llm-wiki skill triggers for pi: bootstrap on session start, research nudge, crystallize proposal",
-  "type": "module",
-  "license": "MIT",
-  "scripts": {
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
-  },
+  "name": "rust-wiki",
+  "private": true,
+  "description": "Monorepo: rust-wiki MCP server + pi-rust-wiki extension",
   "pi": {
-    "extensions": ["./extensions"],
-    "skills": ["./skills"]
-  },
-  "devDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@types/node": "^24",
-    "typescript": "^5",
-    "vitest": "^3"
+    "extensions": ["./extensions/pi-rust-wiki/llm-wiki-skills"],
+    "skills": ["./extensions/pi-rust-wiki/skills"]
   }
 }

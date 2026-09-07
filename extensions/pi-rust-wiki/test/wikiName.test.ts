@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { deriveWikiName } from "../extensions/llm-wiki-skills/lib/wikiName.js";
+import { deriveWikiName } from "../llm-wiki-skills/lib/wikiName.js";
 
 const dirs: string[] = [];
 function gitRepo(...commitArgs: string[]): string {
