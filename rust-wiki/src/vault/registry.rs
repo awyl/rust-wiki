@@ -96,6 +96,11 @@ fn wikilink_re() -> &'static regex::Regex {
     RE.get_or_init(|| regex::Regex::new(r"\[\[([^\]|]+)\]\]").unwrap())
 }
 
+/// Public accessor for the wikilink pattern (used by the write gate).
+pub fn wikilinks() -> &'static regex::Regex {
+    wikilink_re()
+}
+
 fn first_heading_or(body: &str, fallback: &str) -> String {
     for line in body.lines() {
         if let Some(h) = line.trim().strip_prefix("# ") {
