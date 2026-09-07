@@ -182,10 +182,9 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "type": "object",
         "properties": {"space": {"type": "string"}}
     })),
-    ("wiki_watch", "Print a crontab line for scheduled maintenance (hourly | daily | weekly) — does not install it.", json!({
+    ("wiki_watch", "Built-in maintenance scheduler. No args = status (interval, enabled). {run: true} = run one mechanical maintenance cycle (lint + auto_fix + status) across all spaces now and return the reports.", json!({
         "type": "object",
-        "properties": {"space": {"type": "string"}, "schedule": {"type": "string", "enum": ["hourly", "daily", "weekly"]}},
-        "required": ["schedule"]
+        "properties": {"run": {"type": "boolean", "description": "Run an immediate maintenance cycle across all spaces"}}
     })),
     ("wiki_reindex_embeddings", "Re-embed all pages for semantic recall (no-op message when no embedding provider is configured).", json!({
         "type": "object",
@@ -370,13 +369,17 @@ fn dispatch(
         }
         "wiki_reindex_embeddings" => Ok(serde_json::to_value(hub.reembed(need_space!())?)?),
         "wiki_watch" => {
-            let schedule = args["schedule"].as_str().unwrap_or("daily");
-            let exe = std::env::current_exe()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_else(|_| "rust-wiki".into());
-            let line = crate::vault::watch::crontab_line(need_space!(), schedule, &exe)
-                .map_err(crate::api::ApiError::invalid)?;
-            Ok(json!({"crontab": line}))
+            if args["run"].as_bool() == Some(true) {
+                let reports = crate::vault::watch::run_all_spaces(hub.root());
+                Ok(json!({ "ran": reports.len(), "reports": reports }))
+            } else {
+                let interval = crate::vault::watch::interval_from_env();
+                Ok(json!({
+                    "enabled": interval > 0,
+                    "interval_secs": interval,
+                    "default_interval_secs": crate::vault::watch::DEFAULT_INTERVAL_SECS
+                }))
+            }
         }
         "wiki_rebuild_meta" => {
             // lint(false) rebuilds + reports; a pure rebuild: status computes from fresh registry

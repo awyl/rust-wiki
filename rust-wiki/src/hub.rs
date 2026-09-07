@@ -75,6 +75,10 @@ impl Hub {
         }
     }
 
+    pub fn root(&self) -> &PathBuf {
+        &self.root
+    }
+
     fn vault(&self, space: &str) -> VaultPaths {
         VaultPaths::new(&self.root, space)
     }

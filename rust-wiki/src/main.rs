@@ -45,41 +45,15 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()) {
         Some("cron") => return cmd_cron(&args),
-        Some("watch") => return cmd_watch(&args),
         Some(other) => {
-            eprintln!("unknown subcommand '{other}' — usage: rust-wiki [serve] | watch | cron --space <name>");
+            eprintln!(
+                "unknown subcommand '{other}' — usage: rust-wiki [serve] | cron --space <name>"
+            );
             std::process::exit(2);
         }
         None => {}
     }
     serve()
-}
-
-fn cmd_watch(args: &[String]) -> anyhow::Result<()> {
-    let mut space: Option<&str> = None;
-    let mut schedule = "daily";
-    let mut i = 2;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--space" => {
-                i += 1;
-                space = args.get(i).map(|s| s.as_str());
-            }
-            "--schedule" => {
-                i += 1;
-                schedule = args.get(i).map(|s| s.as_str()).unwrap_or("daily");
-            }
-            other => anyhow::bail!("unknown flag '{other}'"),
-        }
-        i += 1;
-    }
-    let space = space.ok_or_else(|| anyhow::anyhow!("--space is required"))?;
-    let exe = std::env::current_exe()?.to_string_lossy().into_owned();
-    println!(
-        "{}",
-        rust_wiki::vault::watch::crontab_line(space, schedule, &exe).map_err(anyhow::Error::msg)?
-    );
-    Ok(())
 }
 
 fn cmd_cron(args: &[String]) -> anyhow::Result<()> {
@@ -125,7 +99,19 @@ fn serve() -> anyhow::Result<()> {
             personal.space_root.display()
         );
     }
-    let hub = Hub::new(root);
+    let hub = Hub::new(root.clone());
+    // Built-in maintenance scheduler: hourly mechanical cycle across all
+    // spaces, on by default. WIKI_CRON_INTERVAL_SECS=0 disables.
+    if let Some(handle) = rust_wiki::vault::watch::spawn(root.clone()) {
+        tracing::info!(
+            "maintenance scheduler armed: every {}s across {}",
+            rust_wiki::vault::watch::interval_from_env(),
+            root.display()
+        );
+        let _ = handle; // joined implicitly at process exit
+    } else {
+        tracing::info!("maintenance scheduler disabled (WIKI_CRON_INTERVAL_SECS=0)");
+    }
     let addr: std::net::SocketAddr = format!("0.0.0.0:{}", port()).parse()?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

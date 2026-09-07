@@ -207,13 +207,19 @@ Deviations from zosmaai Foundation (documented, deliberate):
 - Regex link extraction instead of a CommonMark AST parser.
 - ASCII slugs instead of NFC-normalized identity.
 
-## wiki_watch (server-side, 2026-09-07)
+## wiki_watch (built-in scheduler, 2026-09-07)
 
-`rust-wiki watch` prints a crontab line per space/schedule;
-`rust-wiki cron --space <name>` runs one mechanical maintenance cycle
-(rebuild projections + lint with auto_fix + status to stdout). The
-`wiki_watch` tool returns the same crontab line over MCP. No scheduling
-daemon — cron owns the clock (KISS).
+The server owns the clock — no crontab, no human steps, no daemon
+process. At startup it arms a background thread running a mechanical
+maintenance cycle (lint + auto_fix + status) across every bootstrapped
+space. Default interval: hourly; `WIKI_CRON_INTERVAL_SECS` tunes it,
+`0` disables. Chose a plain thread over the `cron_tab` crate: fixed
+interval covers the need, cron expressions are machinery we don't
+need (KISS/YAGNI).
+
+- `wiki_watch` (MCP, no args) -> scheduler status `{enabled, interval_secs}`.
+- `wiki_watch {run: true}` -> immediate all-spaces cycle, returns reports.
+- `rust-wiki cron --space <name>` -> manual single-space cycle (kept).
 
 ## Obsidian compatibility (2026-09-07)
 
