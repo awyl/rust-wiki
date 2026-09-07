@@ -19,7 +19,7 @@ pub struct PageEntry {
     pub title: String,
     #[serde(rename = "type")]
     pub page_type: String,
-    /// Vault-relative path, e.g. `.llm-wiki/wiki/concepts/rag.md`
+    /// Vault-relative path, e.g. `wiki/concepts/rag.md`
     pub path: String,
     /// Page ids this page links to (outbound).
     pub links: Vec<String>,

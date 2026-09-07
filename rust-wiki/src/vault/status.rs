@@ -81,7 +81,7 @@ mod tests {
                     id: id.into(),
                     title: id.into(),
                     page_type: id.split('/').next().unwrap().trim_end_matches('s').into(),
-                    path: format!(".llm-wiki/wiki/{id}.md"),
+                    path: format!("wiki/{id}.md"),
                     links: vec![],
                     excerpt: String::new(),
                     source_id: None,

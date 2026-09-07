@@ -45,7 +45,6 @@ pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, B
         return Ok(BootstrapResult { created: false, space: space_name(vault) });
     }
     let dirs = [
-        vault.wiki(),
         vault.templates(),
         vault.raw_sources(),
         vault.wiki_pages().join("sources"),
@@ -61,12 +60,12 @@ pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, B
         fs::create_dir_all(d).map_err(|e| BootstrapError(format!("create_dir_all {}: {e}", d.display())))?;
     }
     let config = VaultConfig {
-        space: &space_name_owned(vault),
+        space: &space_name(vault),
         mode: "personal",
         created_at: now_iso.to_string(),
     };
     let config_json = serde_json::to_string_pretty(&config).unwrap();
-    write_if_absent(&vault.config_file(), &config_json)?;;
+    write_if_absent(&vault.config_file(), &config_json)?;
     write_if_absent(&vault.registry_file(), "{\"pages\":{}}")?;
     write_if_absent(&vault.backlinks_file(), "{}")?;
     write_if_absent(&vault.events_file(), "")?;
@@ -79,10 +78,6 @@ pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, B
 }
 
 fn space_name(vault: &VaultPaths) -> String {
-    space_name_owned(vault)
-}
-
-fn space_name_owned(vault: &VaultPaths) -> String {
     vault
         .space_root
         .file_name()
@@ -103,7 +98,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn creates_layout_once_and_is_idempotent() {
+    fn creates_flat_layout_once_and_is_idempotent() {
         let tmp = tempfile::tempdir().unwrap();
         let v = VaultPaths::new(tmp.path(), "proj-x");
         let r1 = bootstrap(&v, "2026-09-06T00:00:00Z").unwrap();
@@ -113,6 +108,8 @@ mod tests {
         assert!(v.templates().join("concept.md").exists());
         assert!(v.raw_sources().is_dir());
         assert!(v.discoveries().is_dir());
+        // flat: config sits directly in the space dir
+        assert_eq!(v.config_file(), tmp.path().join("proj-x/config.json"));
         // second run: no-op, files untouched
         let reg = std::fs::read_to_string(v.registry_file()).unwrap();
         let r2 = bootstrap(&v, "2026-09-07T00:00:00Z").unwrap();

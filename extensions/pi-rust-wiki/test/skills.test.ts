@@ -6,7 +6,7 @@ const SKILLS_DIR = fileURLToPath(new URL("../skills", import.meta.url));
 
 describe("vendored skills", () => {
   it("contains the two cutover skills", () => {
-    for (const name of ["crystallize", "research"]) {
+    for (const name of ["retro", "research"]) {
       expect(existsSync(`${SKILLS_DIR}/${name}/SKILL.md`)).toBe(true);
     }
   });
@@ -23,7 +23,7 @@ describe("vendored skills", () => {
   });
 
   it("skills target rust-wiki tools, not geronimo", () => {
-    for (const dir of ["crystallize", "research"]) {
+    for (const dir of ["retro", "research"]) {
       const md = readFileSync(`${SKILLS_DIR}/${dir}/SKILL.md`, "utf-8");
       expect(md).toContain("wiki_use_space");
       expect(md).not.toContain("wiki_content_write");

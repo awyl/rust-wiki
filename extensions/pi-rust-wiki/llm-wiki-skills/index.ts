@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG, loadConfig, type AutopilotConfig } from "./lib/config.js";
 import { ensureWikiReady } from "./lib/bootstrap.js";
-import { buildCrystallizeDirective, buildResearchNudge } from "./lib/messages.js";
+import { buildRetroDirective, buildResearchNudge } from "./lib/messages.js";
 import { deriveWikiName } from "./lib/wikiName.js";
 
 export interface ExtensionDeps {
@@ -12,18 +12,18 @@ export interface ExtensionDeps {
 }
 
 export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps = {}): void {
-  // Headless workers spawned by the crystallize directive set this to avoid
-  // recursive autopilot firing (bootstrap/crystallize) inside the worker.
+  // Headless workers spawned by the retro directive set this to avoid
+  // recursive autopilot firing (bootstrap/retro) inside the worker.
   if (process.env.LLM_WIKI_AUTOPILOT_DISABLE) return;
 
   const here = dirname(fileURLToPath(import.meta.url));
   const skillsDir = join(here, "..", "..", "skills");
   const skillPath = (name: string) => join(skillsDir, name, "SKILL.md");
-  const workerPromptPath = join(here, "worker-crystallize.md");
+  const workerPromptPath = join(here, "worker-retro.md");
   const ensure = deps.ensureWikiReadyFn ?? ensureWikiReady;
 
   let settledRuns = 0;
-  let crystallizeProposed = false;
+  let retroProposed = false;
   let bootstrapRan = false;
   let wikiName: string | null = null;
   let nudge: string | null = null;
@@ -31,7 +31,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
 
   pi.on("session_start", async (_event, ctx) => {
     settledRuns = 0;
-    crystallizeProposed = false;
+    retroProposed = false;
     bootstrapRan = false;
     wikiName = deriveWikiName(ctx.cwd);
     const loaded = loadConfig(ctx.cwd);
@@ -56,7 +56,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
           token: config.wikiMcpToken,
         });
         if (result.space === "error") {
-          ctx.ui.notify(`[llm-wiki] bootstrap failed: ${result.detail} — continuing without it (index self-heals via crystallize)`, "warning");
+          ctx.ui.notify(`[llm-wiki] bootstrap failed: ${result.detail} — continuing without it (index self-heals via retro)`, "warning");
         } else {
           ctx.ui.notify(`[rust-wiki] space "${wikiName ?? "default"}" ${result.space} — ${result.detail}`, "info");
         }
@@ -70,17 +70,17 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   });
 
   pi.on("agent_settled", async () => {
-    const { crystallize } = config;
-    if (!crystallize.enabled) return;
-    if (crystallize.oncePerSession && crystallizeProposed) return;
+    const { retro } = config;
+    if (!retro.enabled) return;
+    if (retro.oncePerSession && retroProposed) return;
     settledRuns += 1;
-    if (settledRuns < crystallize.everyNRuns) return;
+    if (settledRuns < retro.everyNRuns) return;
     // Re-arm: fires again after another `everyNRuns` settled runs, unless
     // `oncePerSession` pins it to the first fire only.
     settledRuns = 0;
-    crystallizeProposed = true;
+    retroProposed = true;
     await pi.sendMessage(
-      buildCrystallizeDirective(skillPath("crystallize"), workerPromptPath, wikiName, config.display),
+      buildRetroDirective(skillPath("retro"), workerPromptPath, wikiName, config.display),
       // followUp + triggerTurn: if the agent is idle, start a run immediately
       // so the directive executes instead of waiting for the user's next message.
       { deliverAs: "followUp", triggerTurn: true },

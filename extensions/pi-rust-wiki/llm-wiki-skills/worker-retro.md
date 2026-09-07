@@ -1,4 +1,4 @@
-# Crystallize worker (rust-wiki)
+# Retro worker (rust-wiki)
 
 You distill a finished pi session's durable knowledge into the project's
 rust-wiki vault. The launch message names: the extraction file (your ONLY

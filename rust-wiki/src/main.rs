@@ -34,6 +34,13 @@ fn main() -> anyhow::Result<()> {
         .init();
     let root = default_root();
     std::fs::create_dir_all(&root)?;
+    // Personal layer is a first-class citizen: create it on boot so
+    // layered recall works from the first request.
+    let personal = rust_wiki::vault::layout::VaultPaths::new(&root, rust_wiki::vault::layout::SPACE_PERSONAL);
+    if !personal.config_file().exists() {
+        rust_wiki::vault::bootstrap::bootstrap(&personal, &chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true))?;
+        tracing::info!("bootstrapped personal space at {}", personal.space_root.display());
+    }
     let hub = Hub::new(root);
     let addr: std::net::SocketAddr = format!("0.0.0.0:{}", port()).parse()?;
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;

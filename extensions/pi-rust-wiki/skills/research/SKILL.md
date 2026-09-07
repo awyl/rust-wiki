@@ -23,7 +23,7 @@ active space; pass it as `space` on every call.
    `concepts/prompt-cache-safety`). If the vault has nothing relevant,
    say so plainly — do not invent wiki content.
 6. **Gap?** If the question revealed durable knowledge the vault lacks,
-   note it to the user as a crystallize candidate — do not write pages
+   note it to the user as a retro candidate — do not write pages
    yourself during research.
 
 Keep it to 2-5 tool calls unless the question is genuinely broad.

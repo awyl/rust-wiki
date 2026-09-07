@@ -31,7 +31,7 @@ pub fn next_batch(vault: &VaultPaths, source_id: Option<&str>, batch_size: Optio
             .filter(|(sid, _, _)| sid == id)
             .take(1)
             .map(|(sid, title, chars)| Item {
-                extracted_path: format!(".llm-wiki/raw/sources/{sid}/extracted.md"),
+                extracted_path: format!("raw/sources/{sid}/extracted.md"),
                 source_id: sid,
                 title,
                 chars,
@@ -41,7 +41,7 @@ pub fn next_batch(vault: &VaultPaths, source_id: Option<&str>, batch_size: Optio
             .into_iter()
             .take(size)
             .map(|(sid, title, chars)| Item {
-                extracted_path: format!(".llm-wiki/raw/sources/{sid}/extracted.md"),
+                extracted_path: format!("raw/sources/{sid}/extracted.md"),
                 source_id: sid,
                 title,
                 chars,

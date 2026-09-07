@@ -2,10 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export interface CrystallizeConfig {
+export interface RetroConfig {
   enabled: boolean;
   everyNRuns: number;
-  /** When true, crystallize fires once per session (old behavior). Default: re-arms after each fire. */
+  /** When true, retro fires once per session (old behavior). Default: re-arms after each fire. */
   oncePerSession: boolean;
 }
 
@@ -16,9 +16,9 @@ export interface AutopilotConfig {
   display: boolean;
   /** Wiki MCP endpoint for the mechanical bootstrap calls. */
   wikiMcpUrl: string;
-  /** Bearer token for the wiki MCP endpoint (defaults to $AIPROXY_TOKEN). */
+  /** Bearer token for the wiki MCP endpoint (WIKI_TOKEN env; server is unauthenticated by default). */
   wikiMcpToken: string;
-  crystallize: CrystallizeConfig;
+  retro: RetroConfig;
 }
 
 export const DEFAULT_WIKI_MCP_URL = "http://host.containers.internal:8484/mcp";
@@ -29,7 +29,7 @@ export const DEFAULT_CONFIG: AutopilotConfig = {
   display: false,
   wikiMcpUrl: DEFAULT_WIKI_MCP_URL,
   wikiMcpToken: process.env.WIKI_TOKEN ?? "",
-  crystallize: { enabled: true, everyNRuns: 8, oncePerSession: false },
+  retro: { enabled: true, everyNRuns: 8, oncePerSession: false },
 };
 
 export const CONFIG_FILENAME = "llm-wiki.json";
@@ -39,8 +39,8 @@ export interface LoadResult {
   warning?: string;
 }
 
-type PartialConfig = Partial<Omit<AutopilotConfig, "crystallize">> & {
-  crystallize?: Partial<CrystallizeConfig>;
+type PartialConfig = Partial<Omit<AutopilotConfig, "retro">> & {
+  retro?: Partial<RetroConfig>;
 };
 
 /** pi's global agent dir, honoring the documented PI_CODING_AGENT_DIR override. */
@@ -72,14 +72,14 @@ export function loadConfig(cwd: string, globalDir: string = globalAgentDir()): L
       display: pick("display"),
       wikiMcpUrl: pick("wikiMcpUrl"),
       wikiMcpToken: pick("wikiMcpToken"),
-      crystallize: {
-        enabled: project.raw?.crystallize?.enabled ?? global.raw?.crystallize?.enabled ?? DEFAULT_CONFIG.crystallize.enabled,
+      retro: {
+        enabled: project.raw?.retro?.enabled ?? global.raw?.retro?.enabled ?? DEFAULT_CONFIG.retro.enabled,
         everyNRuns:
-          project.raw?.crystallize?.everyNRuns ?? global.raw?.crystallize?.everyNRuns ?? DEFAULT_CONFIG.crystallize.everyNRuns,
+          project.raw?.retro?.everyNRuns ?? global.raw?.retro?.everyNRuns ?? DEFAULT_CONFIG.retro.everyNRuns,
         oncePerSession:
-          project.raw?.crystallize?.oncePerSession ??
-          global.raw?.crystallize?.oncePerSession ??
-          DEFAULT_CONFIG.crystallize.oncePerSession,
+          project.raw?.retro?.oncePerSession ??
+          global.raw?.retro?.oncePerSession ??
+          DEFAULT_CONFIG.retro.oncePerSession,
       },
     },
     warning,

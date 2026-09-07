@@ -1,6 +1,6 @@
 {
   "name": "pi-rust-wiki",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Autonomous llm-wiki skill triggers for pi: bootstrap on session start, research nudge, crystallize proposal",
   "type": "module",
   "license": "MIT",
@@ -9,8 +9,12 @@
     "typecheck": "tsc --noEmit"
   },
   "pi": {
-    "extensions": ["./llm-wiki-skills"],
-    "skills": ["./skills"]
+    "extensions": [
+      "./llm-wiki-skills"
+    ],
+    "skills": [
+      "./skills"
+    ]
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "*",

@@ -1,10 +1,10 @@
 ---
-name: crystallize
+name: retro
 description: Distil the session's durable knowledge into the project's rust-wiki vault.
-whenToUse: When the user asks to record, crystallize, or save session learnings — or when invoked by the autopilot worker.
+whenToUse: When the user asks to record, retro, or save session learnings after a task (retro) — or when invoked by the autopilot worker.
 ---
 
-# Crystallize into the wiki
+# Retro into the wiki
 
 You are the disciplined maintainer. Decide WHAT is durable; the server
 handles mechanics (registry, backlinks, index — rebuilt on every write).

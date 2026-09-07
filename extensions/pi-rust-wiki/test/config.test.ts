@@ -31,7 +31,7 @@ describe("loadConfig", () => {
   });
 
   it("merges partial config over defaults", () => {
-    write(JSON.stringify({ bootstrap: false, crystallize: { everyNRuns: 3 } }));
+    write(JSON.stringify({ bootstrap: false, retro: { everyNRuns: 3 } }));
     const { config } = loadConfig(dir);
     expect(config).toEqual({
       bootstrap: false,
@@ -39,7 +39,7 @@ describe("loadConfig", () => {
       display: false,
       wikiMcpUrl: "http://host.containers.internal:8484/mcp",
       wikiMcpToken: process.env.WIKI_TOKEN ?? "",
-      crystallize: { enabled: true, everyNRuns: 3, oncePerSession: false },
+      retro: { enabled: true, everyNRuns: 3, oncePerSession: false },
     });
   });
 
@@ -52,19 +52,19 @@ describe("loadConfig", () => {
 
   it("applies global settings when the project has no config", () => {
     const globalDir = join(dir, "global");
-    writeGlobal(JSON.stringify({ researchNudge: false, crystallize: { everyNRuns: 12 } }), globalDir);
+    writeGlobal(JSON.stringify({ researchNudge: false, retro: { everyNRuns: 12 } }), globalDir);
     const { config } = loadConfig(dir, globalDir);
     expect(config.researchNudge).toBe(false);
-    expect(config.crystallize.everyNRuns).toBe(12);
+    expect(config.retro.everyNRuns).toBe(12);
   });
 
   it("lets project settings override global settings key-by-key", () => {
     const globalDir = join(dir, "global");
     writeGlobal(
-      JSON.stringify({ bootstrap: false, researchNudge: false, crystallize: { enabled: false, everyNRuns: 12 } }),
+      JSON.stringify({ bootstrap: false, researchNudge: false, retro: { enabled: false, everyNRuns: 12 } }),
       globalDir,
     );
-    write(JSON.stringify({ researchNudge: true, crystallize: { everyNRuns: 2 } }));
+    write(JSON.stringify({ researchNudge: true, retro: { everyNRuns: 2 } }));
     const { config } = loadConfig(dir, globalDir);
     expect(config).toEqual({
       bootstrap: false,
@@ -72,7 +72,7 @@ describe("loadConfig", () => {
       display: false,
       wikiMcpUrl: "http://host.containers.internal:8484/mcp",
       wikiMcpToken: process.env.WIKI_TOKEN ?? "",
-      crystallize: { enabled: false, everyNRuns: 2, oncePerSession: false },
+      retro: { enabled: false, everyNRuns: 2, oncePerSession: false },
     });
   });
 

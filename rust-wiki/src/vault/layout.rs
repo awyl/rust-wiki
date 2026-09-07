@@ -1,12 +1,13 @@
 //! Vault layout: canonical paths inside one space, and ownership
 //! classification used by guardrails (raw/meta immutable, wiki writable).
+//! Flat layout: the space dir IS the vault (no .llm-wiki nesting).
 
 use std::path::{Path, PathBuf};
 
 /// Reserved cross-project space merged into `wiki_recall`.
 pub const SPACE_PERSONAL: &str = "personal";
 
-/// Canonical directories of one space's vault (zosmaai layout).
+/// Canonical directories of one space's vault (flattened zosmaai layout).
 #[derive(Debug, Clone)]
 pub struct VaultPaths {
     /// Space root, e.g. `<vault_root>/<space>/`
@@ -20,26 +21,23 @@ impl VaultPaths {
         }
     }
 
-    pub fn wiki(&self) -> PathBuf {
-        self.space_root.join(".llm-wiki")
-    }
     pub fn config_file(&self) -> PathBuf {
-        self.wiki().join("config.json")
+        self.space_root.join("config.json")
     }
     pub fn templates(&self) -> PathBuf {
-        self.wiki().join("templates")
+        self.space_root.join("templates")
     }
     pub fn raw(&self) -> PathBuf {
-        self.wiki().join("raw")
+        self.space_root.join("raw")
     }
     pub fn raw_sources(&self) -> PathBuf {
         self.raw().join("sources")
     }
     pub fn wiki_pages(&self) -> PathBuf {
-        self.wiki().join("wiki")
+        self.space_root.join("wiki")
     }
     pub fn meta(&self) -> PathBuf {
-        self.wiki().join("meta")
+        self.space_root.join("meta")
     }
     pub fn registry_file(&self) -> PathBuf {
         self.meta().join("registry.json")
@@ -57,10 +55,10 @@ impl VaultPaths {
         self.meta().join("events.jsonl")
     }
     pub fn outputs(&self) -> PathBuf {
-        self.wiki().join("outputs")
+        self.space_root.join("outputs")
     }
     pub fn discoveries(&self) -> PathBuf {
-        self.wiki().join(".discoveries")
+        self.space_root.join(".discoveries")
     }
 
     /// A wiki page path for a folder-qualified id like `concepts/rag`.
@@ -72,7 +70,7 @@ impl VaultPaths {
 /// Ownership class of a vault-relative path. Guardrails map:
 /// - `Raw` and `Meta` are server-owned (immutable / generated)
 /// - `Wiki` is agent+user editable
-/// - `Other` is anything outside `.llm-wiki/` (treated as server-owned)
+/// - `Other` is anything outside the standard dirs (treated as server-owned)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ownership {
     Raw,
@@ -83,28 +81,18 @@ pub enum Ownership {
 
 /// Classify a path (absolute or vault-relative) against a vault.
 pub fn ownership(vault: &VaultPaths, path: &Path) -> Ownership {
-    let rel = match path.strip_prefix(&vault.space_root) {
-        Ok(r) => r.to_path_buf(),
-        Err(_) => match path.strip_prefix(vault.wiki()) {
-            Ok(r) => PathBuf::from(".llm-wiki").join(r),
-            Err(_) => return Ownership::Other,
-        },
+    let Ok(rel) = path.strip_prefix(&vault.space_root) else {
+        return Ownership::Other;
     };
-    let mut comps = rel.components();
-    // first meaningful component decides
-    while let Some(c) = comps.next() {
-        let c = c.as_os_str().to_string_lossy().into_owned();
-        if c == ".llm-wiki" {
-            continue;
-        }
-        return match c.as_str() {
+    match rel.components().next() {
+        Some(c) => match c.as_os_str().to_string_lossy().as_ref() {
             "raw" => Ownership::Raw,
             "meta" => Ownership::Meta,
             "wiki" => Ownership::Wiki,
             _ => Ownership::Other,
-        };
+        },
+        None => Ownership::Other,
     }
-    Ownership::Other
 }
 
 #[cfg(test)]
@@ -116,25 +104,24 @@ mod tests {
     }
 
     #[test]
-    fn paths_follow_zosmaai_layout() {
+    fn paths_are_flat_under_space_root() {
         let v = vault();
-        assert_eq!(v.wiki(), PathBuf::from("/data/vaults/test-space/.llm-wiki"));
-        assert_eq!(v.raw_sources(), PathBuf::from("/data/vaults/test-space/.llm-wiki/raw/sources"));
-        assert_eq!(v.registry_file(), PathBuf::from("/data/vaults/test-space/.llm-wiki/meta/registry.json"));
-        assert_eq!(v.page_path("concepts/rag"), PathBuf::from("/data/vaults/test-space/.llm-wiki/wiki/concepts/rag.md"));
+        assert_eq!(v.config_file(), PathBuf::from("/data/vaults/test-space/config.json"));
+        assert_eq!(v.raw_sources(), PathBuf::from("/data/vaults/test-space/raw/sources"));
+        assert_eq!(v.registry_file(), PathBuf::from("/data/vaults/test-space/meta/registry.json"));
+        assert_eq!(v.page_path("concepts/rag"), PathBuf::from("/data/vaults/test-space/wiki/concepts/rag.md"));
+        assert_eq!(v.discoveries(), PathBuf::from("/data/vaults/test-space/.discoveries"));
     }
 
     #[test]
     fn ownership_rules() {
         let v = vault();
         let space = v.space_root.clone();
-        assert_eq!(ownership(&v, &space.join(".llm-wiki/raw/sources/SRC-1/extracted.md")), Ownership::Raw);
-        assert_eq!(ownership(&v, &space.join(".llm-wiki/meta/registry.json")), Ownership::Meta);
-        assert_eq!(ownership(&v, &space.join(".llm-wiki/wiki/concepts/rag.md")), Ownership::Wiki);
+        assert_eq!(ownership(&v, &space.join("raw/sources/SRC-1/extracted.md")), Ownership::Raw);
+        assert_eq!(ownership(&v, &space.join("meta/registry.json")), Ownership::Meta);
+        assert_eq!(ownership(&v, &space.join("wiki/concepts/rag.md")), Ownership::Wiki);
         assert_eq!(ownership(&v, &space.join("unrelated.txt")), Ownership::Other);
-        // absolute path outside the vault entirely
         assert_eq!(ownership(&v, Path::new("/etc/passwd")), Ownership::Other);
-        // wiki-relative shorthand (already inside .llm-wiki)
-        assert_eq!(ownership(&v, &v.wiki().join("wiki/concepts/x.md")), Ownership::Wiki);
+        assert_eq!(ownership(&v, &space.join("templates/concept.md")), Ownership::Other);
     }
 }

@@ -50,16 +50,15 @@ serving N spaces:
 
 ```
 VAULT_ROOT/                  # default: <exe_dir>/vaults, override: WIKI_VAULT_ROOT
-├── <space-name>/            # one space = one zosmaai-style vault
-│   └── .llm-wiki/           # exact zosmaai layout (below)
-├── personal/                # reserved cross-project layer
+├── <space-name>/            # one space = one flattened zosmaai-style vault (below)
+├── personal/                # reserved cross-project layer (auto-created at boot)
 └── config.toml              # server config (minimal)
 ```
 
-Vault layout per space = verbatim zosmaai:
+Vault layout per space (flattened — no .llm-wiki nesting; change approved 2026-09-07):
 
 ```
-.llm-wiki/
+<space-name>/
 ├── config.json              # vault config
 ├── templates/               # page templates
 ├── raw/sources/SRC-*/       # immutable source packets (extension-owned)

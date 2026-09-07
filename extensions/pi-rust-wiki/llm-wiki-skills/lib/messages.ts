@@ -25,13 +25,13 @@ export function buildResearchNudge(wikiName?: string | null): string {
 }
 
 /**
- * Background crystallize: the main agent writes its session extraction
+ * Background retro: the main agent writes its session extraction
  * to a temp file, then fires one detached headless worker. Static
- * worker instructions live in `worker-crystallize.md` inside the
+ * worker instructions live in `worker-retro.md` inside the
  * package — the directive only carries paths, keeping the dialog and
  * the main session's context small.
  */
-export function buildCrystallizeDirective(
+export function buildRetroDirective(
   skillPath: string,
   workerPromptPath: string,
   wikiName?: string | null,
@@ -39,16 +39,16 @@ export function buildCrystallizeDirective(
 ): DirectiveMessage {
   const name = wikiName ?? "default";
   const extractionPath = `/tmp/llm-wiki-extraction-${name}.md`;
-  const logPath = `/tmp/llm-wiki-crystallize-${name}.log`;
+  const logPath = `/tmp/llm-wiki-retro-${name}.log`;
   const wikiScope = wikiName ? `Wiki: ${wikiName}.` : "No wiki space derivable — use the default space (see wiki_info).";
   return {
-    customType: "llm-wiki-crystallize",
+    customType: "llm-wiki-retro",
     display,
     content: [
       "## Crystallize (background)",
       `1. Write a compact extraction of this session's durable knowledge (2-6 items: what, type, confidence, target slug — the worker cannot see this session) to \`${extractionPath}\`.`,
       `2. Run ONE command as a background bash task: \`LLM_WIKI_AUTOPILOT_DISABLE=1 pi -p "Read ${workerPromptPath} and follow it. Extraction file: ${extractionPath}. Crystallize skill: ${skillPath}. ${wikiScope}" > ${logPath} 2>&1 &\``,
-      `3. Tell the user crystallize was delegated (log at \`${logPath}\`). Do nothing else — no wiki calls in this session.`,
+      `3. Tell the user retro was delegated (log at \`${logPath}\`). Do nothing else — no wiki calls in this session.`,
     ].join("\n"),
   };
 }

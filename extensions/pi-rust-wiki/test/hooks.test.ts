@@ -128,7 +128,7 @@ describe("research nudge", () => {
   });
 });
 
-describe("crystallize", () => {
+describe("retro", () => {
   it("fires at the threshold, re-arms, and auto-triggers an idle agent", async () => {
     const { ensureWikiReadyFn } = recorder();
     const { handlers, sent } = await loadExtension({ ensureWikiReadyFn });
@@ -137,13 +137,13 @@ describe("crystallize", () => {
     await handlers.get("before_agent_start")!({ prompt: "hi", systemPrompt: "BASE" }, ctx);
     const settled = handlers.get("agent_settled")!;
     for (let i = 0; i < 16; i++) await settled({}, ctx);
-    const crystallize = sent.filter((s) => s.message.customType === "llm-wiki-crystallize");
-    expect(crystallize).toHaveLength(2); // runs 8 and 16
-    expect(crystallize[0].options).toEqual({ deliverAs: "followUp", triggerTurn: true });
-    expect(crystallize[0].message.content).toContain("pi -p");
+    const retro = sent.filter((s) => s.message.customType === "llm-wiki-retro");
+    expect(retro).toHaveLength(2); // runs 8 and 16
+    expect(retro[0].options).toEqual({ deliverAs: "followUp", triggerTurn: true });
+    expect(retro[0].message.content).toContain("pi -p");
   });
 
-  it("session_start resets the crystallize counter and proposal flag", async () => {
+  it("session_start resets the retro counter and proposal flag", async () => {
     const { ensureWikiReadyFn } = recorder();
     const { handlers, sent } = await loadExtension({ ensureWikiReadyFn });
     const ctx = fakeCtx("/work");
@@ -151,17 +151,17 @@ describe("crystallize", () => {
     for (let i = 0; i < 8; i++) await settled({}, ctx);
     await handlers.get("session_start")!({ reason: "new" }, ctx);
     for (let i = 0; i < 7; i++) await settled({}, ctx);
-    expect(sent.filter((s) => s.message.customType === "llm-wiki-crystallize")).toHaveLength(1);
+    expect(sent.filter((s) => s.message.customType === "llm-wiki-retro")).toHaveLength(1);
     await settled({}, ctx);
-    expect(sent.filter((s) => s.message.customType === "llm-wiki-crystallize")).toHaveLength(2);
+    expect(sent.filter((s) => s.message.customType === "llm-wiki-retro")).toHaveLength(2);
   });
 
-  it("oncePerSession pins crystallize to the first threshold only", async () => {
+  it("oncePerSession pins retro to the first threshold only", async () => {
     const dir = mkdtempSync(join(tmpdir(), "hooks-config-"));
     mkdirSync(join(dir, ".pi"), { recursive: true });
     writeFileSync(
       join(dir, ".pi", "llm-wiki.json"),
-      JSON.stringify({ crystallize: { enabled: true, everyNRuns: 8, oncePerSession: true } }),
+      JSON.stringify({ retro: { enabled: true, everyNRuns: 8, oncePerSession: true } }),
     );
     try {
       const { ensureWikiReadyFn } = recorder();
@@ -169,7 +169,7 @@ describe("crystallize", () => {
       await handlers.get("session_start")!({ reason: "startup" }, fakeCtx(dir));
       const settled = handlers.get("agent_settled")!;
       for (let i = 0; i < 24; i++) await settled({}, fakeCtx(dir));
-      expect(sent.filter((s) => s.message.customType === "llm-wiki-crystallize")).toHaveLength(1);
+      expect(sent.filter((s) => s.message.customType === "llm-wiki-retro")).toHaveLength(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -188,8 +188,8 @@ describe("crystallize", () => {
 });
 
 describe("worker file", () => {
-  it("worker-crystallize.md ships the full unattended procedure", () => {
-    const file = readFileSync(join(__dirname, "../llm-wiki-skills/worker-crystallize.md"), "utf-8");
+  it("worker-retro.md ships the full unattended procedure", () => {
+    const file = readFileSync(join(__dirname, "../llm-wiki-skills/worker-retro.md"), "utf-8");
     expect(file).toContain("AUTO-WRITE");
     expect(file).toContain("wiki_use_space");
     expect(file).toContain("wiki_retro");
