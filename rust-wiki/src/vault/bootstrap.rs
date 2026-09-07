@@ -28,6 +28,7 @@ pub struct BootstrapResult {
 struct VaultConfig<'a> {
     space: &'a str,
     mode: &'a str,
+    knowledge_format: &'a str,
     created_at: String,
 }
 
@@ -81,6 +82,7 @@ pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, B
     let config = VaultConfig {
         space: &space_name(vault),
         mode: "personal",
+        knowledge_format: "okf-0.2",
         created_at: now_iso.to_string(),
     };
     let config_json = serde_json::to_string_pretty(&config).unwrap();

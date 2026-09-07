@@ -89,6 +89,7 @@ mod tests {
                     path: format!("wiki/{id}.md"),
                     links: vec![],
                     excerpt: String::new(),
+                    description: String::new(),
                     source_id: None,
                 },
             );

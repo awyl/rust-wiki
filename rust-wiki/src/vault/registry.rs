@@ -25,6 +25,9 @@ pub struct PageEntry {
     pub links: Vec<String>,
     /// First ~200 chars of body text (preview for recall/search).
     pub excerpt: String,
+    /// OKF `description`: canonical one-sentence preview (empty when unknown).
+    #[serde(default)]
+    pub description: String,
     /// For `sources/` pages: ingest state (absent = not applicable).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_id: Option<String>,
@@ -159,6 +162,16 @@ pub fn rebuild_metadata(vault: &VaultPaths) -> Result<Registry, String> {
     write_json(&vault.registry_file(), &registry)?;
     write_json(&vault.backlinks_file(), &inbound)?;
     write_index(vault, &registry)?;
+    // OKF mode: deterministic wiki/ projections (reserved generated files)
+    if super::okf::mode(vault)? == super::okf::Mode::Okf {
+        let name = vault
+            .space_root
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Wiki".into());
+        super::okf::write_dir_indexes(vault, &registry, &name)?;
+        super::okf::write_okf_log(vault)?;
+    }
     Ok(registry)
 }
 
@@ -212,6 +225,9 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
             let page_type = fm
                 .and_then(|f| fm_scalar(f, "type"))
                 .unwrap_or_else(|| folder.trim_end_matches('s').to_string());
+            let description = fm
+                .and_then(|f| fm_scalar(f, "description"))
+                .unwrap_or_default();
             let source_id = if folder == "sources" {
                 Some(file_stem.clone())
             } else {
@@ -230,6 +246,7 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
                         .replace('\\', "/"),
                     links: extract_links(body),
                     excerpt: excerpt_of(body, 200),
+                    description,
                     source_id,
                 },
             );
@@ -269,7 +286,7 @@ pub fn log_event(
     now_iso: &str,
 ) -> Result<(), String> {
     use std::io::Write;
-    let event = serde_json::json!({ "ts": now_iso, "kind": kind, "details": details });
+    let event = serde_json::json!({ "timestamp": now_iso, "kind": kind, "details": details });
     let mut f = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -290,7 +307,7 @@ pub fn rebuild_log(vault: &VaultPaths) -> Result<(), String> {
             }
             let v: serde_json::Value =
                 serde_json::from_str(line).map_err(|e| format!("parse event: {e}"))?;
-            let ts = v["ts"].as_str().unwrap_or("?");
+            let ts = v["timestamp"].as_str().unwrap_or("?");
             let kind = v["kind"].as_str().unwrap_or("?");
             out.push_str(&format!("- `{ts}` {kind} {}\n", v["details"]));
         }

@@ -182,7 +182,48 @@ cross-space leakage). Mechanical core target ~85% coverage like upstream.
 5. **M5 — cutover:** autopilot retarget, skill vendoring + adaptation,
    repoint agents, decommission geronimo.
 
+## OKF v0.2 support (2026-09-07, pulled forward from deferred)
+
+Adopted subset of zosmaai's OKF Foundation spec:
+
+- `knowledge_format` field in vault config.json: new bootstraps persist
+  `okf-0.2`; absent/`legacy` = legacy mode; unknown values fail closed
+  (`config_invalid_knowledge_format`).
+- Deterministic `wiki/index.md` + per-directory `index.md` projections
+  in OKF mode (root frontmatter `okf_version: "0.2"`, Directories before
+  Concepts, path-sorted, ` — description` only when non-empty, stale
+  indexes pruned).
+- Deterministic `wiki/log.md` from events.jsonl (grouped by UTC date,
+  newest first, canonical sorted-key JSON details, malformed events
+  omitted). Event field renamed `ts` -> `timestamp` for OKF alignment.
+- Guardrails: `wiki/index.md`, `wiki/**/index.md`, `wiki/log.md` are
+  generated projections — direct writes rejected in OKF mode.
+- Registry entries carry OKF `description` (frontmatter, optional).
+
+Deviations from zosmaai Foundation (documented, deliberate):
+
+- Lenient frontmatter parsing (house LLM-friendly style) instead of
+  fail-closed YAML diagnostics.
+- Regex link extraction instead of a CommonMark AST parser.
+- ASCII slugs instead of NFC-normalized identity.
+
+## wiki_watch (server-side, 2026-09-07)
+
+`rust-wiki watch` prints a crontab line per space/schedule;
+`rust-wiki cron --space <name>` runs one mechanical maintenance cycle
+(rebuild projections + lint with auto_fix + status to stdout). The
+`wiki_watch` tool returns the same crontab line over MCP. No scheduling
+daemon — cron owns the clock (KISS).
+
+## Obsidian compatibility (2026-09-07)
+
+The OKF projections ARE the Obsidian story: `wiki/index.md` gives a
+clickable entry page, standard markdown links open natively, plain
+folders open as a vault. Space bootstrap additionally writes a README.md
+at the space root documenting the layout. No .obsidian/ generation —
+Obsidian creates its own config on first open.
+
 ## Non-goals (v1)
 
-Auth, embeddings, trajectories/working-memory, wiki_watch, OKF
-projections, Obsidian integration, multi-user/quotas, data migration.
+Auth, embeddings (pulled forward 2026-09-07 — see below), trajectories/
+working-memory (still deferred), multi-user/quotas, data migration.
