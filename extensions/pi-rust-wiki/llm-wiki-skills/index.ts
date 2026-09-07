@@ -52,14 +52,13 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
       try {
         const result = await ensure({
           wikiName: wikiName ?? "default",
-          wikiRoot: config.wikiRoot || undefined,
           url: config.wikiMcpUrl,
           token: config.wikiMcpToken,
         });
         if (result.space === "error") {
           ctx.ui.notify(`[llm-wiki] bootstrap failed: ${result.detail} — continuing without it (index self-heals via crystallize)`, "warning");
         } else {
-          ctx.ui.notify(`[llm-wiki] wiki: "${wikiName ?? "default"}" — space ${result.space}, index ${result.index}`, "info");
+          ctx.ui.notify(`[rust-wiki] space "${wikiName ?? "default"}" ${result.space} — ${result.detail}`, "info");
         }
       } catch (err) {
         ctx.ui.notify(`[llm-wiki] bootstrap failed: ${(err as Error).message} — continuing without it`, "warning");

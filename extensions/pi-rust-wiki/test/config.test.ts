@@ -37,20 +37,10 @@ describe("loadConfig", () => {
       bootstrap: false,
       researchNudge: true,
       display: false,
-      wikiRoot: "",
-      wikiMcpUrl: "http://host.containers.internal:9999/mcp/wiki",
-      wikiMcpToken: process.env.AIPROXY_TOKEN ?? "AIPROXY_TOKEN",
+      wikiMcpUrl: "http://host.containers.internal:8484/mcp",
+      wikiMcpToken: process.env.WIKI_TOKEN ?? "",
       crystallize: { enabled: true, everyNRuns: 3, oncePerSession: false },
     });
-  });
-
-  it("picks up wikiRoot and oncePerSession from config layers", () => {
-    writeGlobal(JSON.stringify({ wikiRoot: "/data" }), join(dir, "global"));
-    write(JSON.stringify({ crystallize: { oncePerSession: true } }));
-    const { config } = loadConfig(dir, join(dir, "global"));
-    expect(config.wikiRoot).toBe("/data");
-    expect(config.crystallize.oncePerSession).toBe(true);
-    expect(config.crystallize.everyNRuns).toBe(8); // default preserved
   });
 
   it("falls back to defaults with a warning on malformed JSON", () => {
@@ -80,9 +70,8 @@ describe("loadConfig", () => {
       bootstrap: false,
       researchNudge: true,
       display: false,
-      wikiRoot: "",
-      wikiMcpUrl: "http://host.containers.internal:9999/mcp/wiki",
-      wikiMcpToken: process.env.AIPROXY_TOKEN ?? "AIPROXY_TOKEN",
+      wikiMcpUrl: "http://host.containers.internal:8484/mcp",
+      wikiMcpToken: process.env.WIKI_TOKEN ?? "",
       crystallize: { enabled: false, everyNRuns: 2, oncePerSession: false },
     });
   });

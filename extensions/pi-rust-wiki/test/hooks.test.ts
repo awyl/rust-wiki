@@ -74,22 +74,6 @@ describe("bootstrap hold", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("passes the configured wikiRoot to the bootstrap call", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hooks-root-"));
-    mkdirSync(join(dir, ".pi"), { recursive: true });
-    writeFileSync(join(dir, ".pi", "llm-wiki.json"), JSON.stringify({ wikiRoot: "/data" }));
-    const { ensureWikiReadyFn, calls } = recorder();
-    try {
-      const { handlers } = await loadExtension({ ensureWikiReadyFn });
-      const ctx = fakeCtx(dir);
-      await handlers.get("session_start")!({ reason: "startup" }, ctx);
-      await handlers.get("before_agent_start")!({ prompt: "hi", systemPrompt: "BASE" }, ctx);
-      expect(calls[0].wikiRoot).toBe("/data");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
   it("skips the bootstrap entirely when disabled", async () => {
     const dir = mkdtempSync(join(tmpdir(), "hooks-noboot-"));
     mkdirSync(join(dir, ".pi"), { recursive: true });
@@ -130,7 +114,7 @@ describe("research nudge", () => {
     await handlers.get("session_start")!({ reason: "startup" }, ctx);
     const hook = handlers.get("before_agent_start")!;
     const first = await hook({ prompt: "hi", systemPrompt: "BASE" }, ctx);
-    expect(first!.systemPrompt).toContain('wiki: "rust-wiki-cc79119"');
+    expect(first!.systemPrompt).toContain(`space: "rust-wiki-cc79119"`);
     const second = await hook({ prompt: "hi again", systemPrompt: first!.systemPrompt }, ctx);
     expect(second).toBeUndefined();
   });
@@ -207,10 +191,9 @@ describe("worker file", () => {
   it("worker-crystallize.md ships the full unattended procedure", () => {
     const file = readFileSync(join(__dirname, "../llm-wiki-skills/worker-crystallize.md"), "utf-8");
     expect(file).toContain("AUTO-WRITE");
-    expect(file).toContain("wiki_index_rebuild");
-    expect(file).toContain("wiki_ingest");
+    expect(file).toContain("wiki_use_space");
+    expect(file).toContain("wiki_retro");
     expect(file).toContain("wiki_lint");
-    expect(file).toContain("accumulation contract");
     expect(file).toContain("intercom");
   });
 });

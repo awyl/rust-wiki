@@ -46,10 +46,9 @@ describe("directive builders", () => {
   it("worker-crystallize.md ships the full unattended procedure", () => {
     const file = readFileSync(join(__dirname, "../llm-wiki-skills/worker-crystallize.md"), "utf-8");
     expect(file).toContain("AUTO-WRITE");
-    expect(file).toContain("wiki_index_rebuild");
-    expect(file).toContain("wiki_ingest");
+    expect(file).toContain("wiki_use_space");
+    expect(file).toContain("wiki_retro");
     expect(file).toContain("wiki_lint");
-    expect(file).toContain("accumulation contract");
     expect(file).toContain("intercom");
   });
 });

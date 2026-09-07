@@ -37,36 +37,33 @@ afterEach(() => {
   vi.resetModules();
 });
 
-const INFO_OK = { spaces: ["rust-wiki-cc79119"], index_status: { status: "ok" } };
+function useSpaceOut(exists: boolean) {
+  return { content: [{ type: "text", text: JSON.stringify({ space: "s", exists, total_pages: exists ? 3 : null }) }] };
+}
+function bootstrapOut() {
+  return { content: [{ type: "text", text: JSON.stringify({ created: true, space: "s", root: "/v/s" }) }] };
+}
 
-describe("ensureWikiReady", () => {
-  it("does nothing when the space exists and the index is healthy", async () => {
-    const fetchMock = stubFetch([{ body: { result: { content: [{ type: "text", text: JSON.stringify(INFO_OK) }] } } }]);
-    const result = await ensureWikiReady({ url: URL_, wikiName: "rust-wiki-cc79119" });
-    expect(result).toEqual({ space: "ok", index: "ok", detail: "space ok; index ok" });
+describe("ensureWikiReady (rust-wiki)", () => {
+  it("does nothing when the space exists", async () => {
+    stubFetch([{ body: { result: useSpaceOut(true) } }]);
+    const result = await ensureWikiReady({ url: URL_, wikiName: "proj-x" });
+    expect(result).toEqual({ space: "ok", index: "ok", detail: "space ok" });
+  });
+
+  it("bootstraps when the space is missing and verifies it", async () => {
+    const fetchMock = stubFetch([{ body: { result: useSpaceOut(false) } }, { body: { result: bootstrapOut() } }, { body: { result: useSpaceOut(true) } }]);
+    const result = await ensureWikiReady({ url: URL_, wikiName: "proj-x" });
+    expect(result).toEqual({ space: "created", index: "ok", detail: "space created" });
     const bodies = fetchMock.mock.calls.map((c: any) => JSON.parse(c[1].body));
-    expect(bodies.some((b: any) => b.method === "tools/call" && b.params.name === "wiki_info")).toBe(true);
-    expect(bodies.some((b: any) => b.method === "tools/call" && b.params.name === "wiki_spaces_create")).toBe(false);
+    const names = bodies.filter((b: any) => b.method === "tools/call").map((b: any) => b.params.name);
+    expect(names).toEqual(["wiki_use_space", "wiki_bootstrap", "wiki_use_space"]);
   });
 
-  it("creates the space under wikiRoot when missing", async () => {
-    stubFetch([{ body: { result: { content: [{ type: "text", text: JSON.stringify({ spaces: ["main"], index_status: { status: "ok" } }) }] } } }]);
-    const result = await ensureWikiReady({ url: URL_, wikiName: "new-proj-abc1234", wikiRoot: "/data" });
-    expect(result.space).toBe("created");
-  });
-
-  it("reports needs-parent-dir when the space is missing and no wikiRoot is set", async () => {
-    stubFetch([{ body: { result: { content: [{ type: "text", text: JSON.stringify({ spaces: ["main"], index_status: { status: "ok" } }) }] } } }]);
-    const result = await ensureWikiReady({ url: URL_, wikiName: "new-proj-abc1234" });
-    expect(result).toEqual({ space: "needs-parent-dir", index: "n/a", detail: "space missing and no wikiRoot configured" });
-  });
-
-  it("rebuilds when the index is degraded", async () => {
-    const fetchMock = stubFetch([{ body: { result: { content: [{ type: "text", text: JSON.stringify({ spaces: ["rust-wiki-cc79119"], index_status: { status: "degraded" } }) }] } } }]);
-    const result = await ensureWikiReady({ url: URL_, wikiName: "rust-wiki-cc79119" });
-    expect(result.index).toBe("rebuilt");
-    const bodies = fetchMock.mock.calls.map((c: any) => JSON.parse(c[1].body));
-    expect(bodies.some((b: any) => b.method === "tools/call" && b.params.name === "wiki_index_rebuild")).toBe(true);
+  it("reports create-verify failure honestly", async () => {
+    stubFetch([{ body: { result: useSpaceOut(false) } }, { body: { result: bootstrapOut() } }, { body: { result: useSpaceOut(false) } }]);
+    const result = await ensureWikiReady({ url: URL_, wikiName: "proj-x" });
+    expect(result.detail).toContain("verify failed");
   });
 
   it("never throws — failures come back as an error result", async () => {
@@ -84,7 +81,7 @@ describe("ensureWikiReady", () => {
       if (body.method === "initialize") {
         msg = { jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-06-18", capabilities: {} } };
       } else {
-        msg = { jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text: JSON.stringify(INFO_OK) }] } };
+        msg = { jsonrpc: "2.0", id: body.id, result: useSpaceOut(true) };
       }
       return {
         status: 200,
@@ -93,7 +90,7 @@ describe("ensureWikiReady", () => {
       } as Response;
     });
     vi.stubGlobal("fetch", fetchMock);
-    const result = await ensureWikiReady({ url: URL_, wikiName: "rust-wiki-cc79119" });
-    expect(result).toEqual({ space: "ok", index: "ok", detail: "space ok; index ok" });
+    const result = await ensureWikiReady({ url: URL_, wikiName: "proj-x" });
+    expect(result).toEqual({ space: "ok", index: "ok", detail: "space ok" });
   });
 });

@@ -14,11 +14,11 @@ export function buildResearchNudge(wikiName?: string | null): string {
   const lines = [
     "",
     "## Wiki knowledge",
-    "A wiki MCP server is connected to this session. When a question might be answered from wiki knowledge, use the `research` skill: read its SKILL.md, then `wiki_search` / `wiki_content_read` before answering from memory alone.",
+    "A wiki MCP server (rust-wiki) is connected to this session. When a question might be answered from wiki knowledge, use the `research` skill: read its SKILL.md, then `wiki_recall` / `wiki_search` / `wiki_read_page` before answering from memory alone.",
   ];
   if (wikiName) {
     lines.push(
-      `Project wiki space: \`${wikiName}\` — pass \`wiki: "${wikiName}"\` on every wiki tool call. A background worker already ensured the space exists and the index is healthy.`,
+      `Project wiki space: \`${wikiName}\` — pass \`space: "${wikiName}"\` on every wiki_* tool call (rust-wiki: wiki_recall, wiki_search, wiki_read_page, wiki_retro, wiki_ensure_page, wiki_capture_source, wiki_ingest, wiki_observe). A background check at session start ensured the space exists.`,
     );
   }
   return lines.join("\n");

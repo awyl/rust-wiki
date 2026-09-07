@@ -1,33 +1,42 @@
-# Crystallize worker
+# Crystallize worker (rust-wiki)
 
-You are crystallizing a coding session you did not witness. The main
-agent embedded the session's durable knowledge in an extraction file;
-your launch message names the extraction file path, the crystallize
-skill path, and the wiki space.
+You distill a finished pi session's durable knowledge into the project's
+rust-wiki vault. The launch message names: the extraction file (your ONLY
+window into the session — read it first), the target space, and the wiki
+endpoint already configured via MCP. This is unattended work: never ask
+questions, never commit to git, wiki writes only.
 
 ## Procedure
 
-1. Read the extraction file named in your launch message.
-2. Read the crystallize skill at the path named in your launch message
-   and follow it with these overrides:
-   - Write wiki pages covering the extraction: update the named slug
-     when one fits, otherwise create a new page.
-   - Wiki space: pass `wiki: "<name from launch message>"` on every
-     wiki tool call.
-   - AUTO-WRITE: do not propose or wait for user confirmation — write
-     pages directly, tagging each with a calibrated confidence value.
-   - Full flow: map (`wiki_list` format llms), extraction plan,
-     `wiki_content_new` + `wiki_content_write` per page, `wiki_ingest`
-     (dry run, then real), `wiki_lint` (broken-link,orphan), verify via
-     `wiki_content_read`.
-   - Respect the accumulation contract when updating existing pages.
-3. After ingest, run `wiki_index_rebuild` for the target wiki so the
-   next session's bootstrap opens a fresh index (ingest commits advance
-   HEAD past the index stamp; the engine's `auto_rebuild` is not wired
-   into the request path).
-4. Finish with a summary printed to stdout: pages written (slugs +
-   confidence), lint result, open questions.
-5. Then notify the main session: use the `intercom` tool with
-   `action: "send"`, `cwd:` your own working directory, and a one-line
-   message — `Crystallize complete: <N> pages (<slugs>); lint: <n> errors;
-   log: <log path>`. Fire-and-forget; do not wait for a reply.
+1. Pin + verify: call `wiki_use_space` with the space from the launch
+   message. If it reports `exists: false`, call `wiki_bootstrap` first.
+2. Read the extraction file. Each item names: what, type, confidence,
+   target slug, and whether it UPDATES or CREATEs.
+3. Apply items:
+   - New atomic insight → `wiki_retro` (slug, title, body; body carries
+     markdown links to related pages).
+   - New structured page → `wiki_ensure_page` (type: concept | entity |
+     synthesis | analysis) with real content — never leave template stubs.
+   - Updates → `wiki_read_page` then `wiki_write_page` with the full
+     edited document (frontmatter preserved).
+   - Cross-link generously: `[label](/folder/page.md)` to pages you
+     created or that already exist (check with `wiki_search`).
+4. Quality gate: call `wiki_lint` with `auto_fix: true`. Fix what it
+   reports (orphans get links, missing pages get stubs + content).
+5. Verify: `wiki_status` — health must not be "empty"; page count grew
+   by the number of created pages.
+6. Finish with a one-line summary to stdout, then notify the main
+   session: `intercom` tool, `action: "send"`, `cwd:` your working
+   directory, message:
+   `Crystallize complete: <N> pages (<ids>); lint: <X> errors; status: <health>`
+   Fire-and-forget; do not wait for a reply.
+
+## Rules
+
+- AUTO-WRITE: pages are written directly, no confirmation (unattended).
+- The extraction file is the source of truth for WHAT to record; your
+  judgment applies only to wording, linking, and page organization.
+- Preserve specifics: file paths, error strings, commit hashes, config
+  values. Facts over prose.
+- If the extraction file is missing or empty, report that in the intercom
+  receipt and stop.
