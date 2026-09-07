@@ -19,32 +19,46 @@ pub struct Item {
     pub title: String,
     pub chars: usize,
     pub extracted_path: String,
+    /// Full extracted content — the agent synthesizes from THIS, since
+    /// raw/ is not page-readable on a remote server.
+    pub extracted: String,
 }
 
 /// Next batch of uningested sources (oldest first).
 pub fn next_batch(vault: &VaultPaths, source_id: Option<&str>, batch_size: Option<u32>) -> Result<Batch, String> {
     let size = batch_size.unwrap_or(DEFAULT_BATCH).min(MAX_BATCH).max(1) as usize;
+    let read_extracted = |sid: &str| {
+        std::fs::read_to_string(vault.raw_sources().join(sid).join("extracted.md")).unwrap_or_default()
+    };
     let pending = capture::pending(vault)?;
     let items: Vec<Item> = match source_id {
         Some(id) => pending
             .into_iter()
             .filter(|(sid, _, _)| sid == id)
             .take(1)
-            .map(|(sid, title, chars)| Item {
-                extracted_path: format!("raw/sources/{sid}/extracted.md"),
-                source_id: sid,
-                title,
-                chars,
+            .map(|(sid, title, chars)| {
+                let extracted = read_extracted(&sid);
+                Item {
+                    extracted_path: format!("raw/sources/{sid}/extracted.md"),
+                    source_id: sid,
+                    title,
+                    chars,
+                    extracted,
+                }
             })
             .collect(),
         None => pending
             .into_iter()
             .take(size)
-            .map(|(sid, title, chars)| Item {
-                extracted_path: format!("raw/sources/{sid}/extracted.md"),
-                source_id: sid,
-                title,
-                chars,
+            .map(|(sid, title, chars)| {
+                let extracted = read_extracted(&sid);
+                Item {
+                    extracted_path: format!("raw/sources/{sid}/extracted.md"),
+                    source_id: sid,
+                    title,
+                    chars,
+                    extracted,
+                }
             })
             .collect(),
     };
@@ -81,6 +95,8 @@ mod tests {
         assert_eq!(b1.items.len(), 3);
         assert_eq!(b1.remaining, 1);
         assert!(!b1.all_ingested);
+        // batch carries the full extracted content for synthesis
+        assert!(b1.items[0].extracted.contains("body 1"));
 
         capture::mark_ingested(&v, &b1.items.iter().map(|i| i.source_id.clone()).collect::<Vec<_>>(), "t").unwrap();
         let b2 = next_batch(&v, None, None).unwrap();

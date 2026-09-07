@@ -144,7 +144,10 @@ impl WikiApi for Hub {
         }
         let b = vi::next_batch(&v, source_id, batch_size).map_err(|e| ApiError::new("io", e))?;
         Ok(IngestOut {
-            batch: b.items.into_iter().map(|i| IngestItem { source_id: i.source_id, title: i.title, chars: i.chars, extracted_path: i.extracted_path, ingested: false }).collect(),
+            batch: b.items
+                .into_iter()
+                .map(|i| IngestItem { source_id: i.source_id, title: i.title, chars: i.chars, extracted_path: i.extracted_path, extracted: i.extracted, ingested: false })
+                .collect(),
             remaining: b.remaining,
             all_ingested: b.all_ingested,
         })

@@ -66,8 +66,10 @@ pub struct IngestItem {
     pub source_id: String,
     pub title: String,
     pub chars: usize,
-    /// Vault-relative path of extracted.md for reading.
+    /// Vault-relative path of extracted.md (reference only).
     pub extracted_path: String,
+    /// Full extracted content — agents synthesize from this.
+    pub extracted: String,
     pub ingested: bool,
 }
 
