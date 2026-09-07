@@ -32,6 +32,23 @@ struct VaultConfig<'a> {
     created_at: String,
 }
 
+/// Obsidian-friendly orientation page: open the space folder as a vault.
+const SPACE_README: &str = "# Wiki space
+
+Open this folder in Obsidian (or any Markdown editor) — pages are plain
+Markdown with standard links, and `wiki/index.md` is the generated
+entry point.
+
+Layout:
+
+- `wiki/` — editable knowledge pages (`concepts/`, `entities/`,
+  `syntheses/`, `analyses/`, `sources/`). `wiki/index.md`, directory
+  `index.md` files, and `wiki/log.md` are generated — do not edit.
+- `raw/` — immutable captured sources. Do not edit.
+- `meta/` — server-owned registry and event stream. Do not edit.
+- `templates/` — page templates used on creation.
+";
+
 const TEMPLATES: &[(&str, &str)] = &[
     (
         "concept",
@@ -95,6 +112,7 @@ pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, B
     for (name, body) in TEMPLATES {
         write_if_absent(&vault.templates().join(format!("{name}.md")), body)?;
     }
+    write_if_absent(&vault.space_root.join("README.md"), SPACE_README)?;
     Ok(BootstrapResult {
         created: true,
         space: space_name(vault),
@@ -132,6 +150,7 @@ mod tests {
         assert!(v.templates().join("concept.md").exists());
         assert!(v.raw_sources().is_dir());
         assert!(v.discoveries().is_dir());
+        assert!(v.space_root.join("README.md").exists());
         // flat: config sits directly in the space dir
         assert_eq!(v.config_file(), tmp.path().join("proj-x/config.json"));
         // second run: no-op, files untouched
