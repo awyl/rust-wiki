@@ -23,7 +23,7 @@ export interface AutopilotConfig {
   retro: RetroConfig;
 }
 
-export const DEFAULT_WIKI_MCP_URL = "http://host.containers.internal:8484/mcp";
+export const DEFAULT_WIKI_MCP_URL = "http://host.containers.internal:9999/mcp/wiki";
 
 export const DEFAULT_CONFIG: AutopilotConfig = {
   bootstrap: true,

@@ -32,7 +32,7 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
   "researchNudge": true,
   "autoInject": false,
   "display": false,
-  "wikiMcpUrl": "http://host.containers.internal:8484/mcp",
+  "wikiMcpUrl": "http://host.containers.internal:8484/mcp"  # or omit when aiproxy hosts the server
   "wikiMcpToken": "",
   "retro": { "enabled": true, "everyNRuns": 8, "oncePerSession": false }
 }
@@ -46,7 +46,7 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 
 **`display`:** default `false` — directive text (retro) is delivered silently; you'll see the agent's one-line report and the background worker command. Set `true` to render directive text in the UI.
 
-**`wikiMcpUrl`:** the MCP endpoint the extension calls directly for the mechanical bootstrap (`wiki_use_space` / `wiki_bootstrap`). Default `http://host.containers.internal:8484/mcp` — the local rust-wiki server. Set it to wherever your rust-wiki binary listens.
+**`wikiMcpUrl`:** the MCP endpoint the extension calls directly for the mechanical bootstrap (`wiki_use_space` / `wiki_bootstrap`). Default `http://host.containers.internal:9999/mcp/wiki` — the aiproxy-hosted rust-wiki; point at `http://host.containers.internal:8484/mcp` for a standalone local server. The local rust-wiki server. Set it to wherever your rust-wiki binary listens.
 
 **`wikiMcpToken`:** bearer token for that endpoint. Default empty — rust-wiki serves unauthenticated on trusted networks. Set via `WIKI_TOKEN` env or the config key if you front it with auth.
 
