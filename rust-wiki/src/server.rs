@@ -25,7 +25,7 @@ type Shared = Arc<Hub>;
 // ---------- JSON-RPC envelope ----------
 
 #[derive(Debug, Deserialize)]
-struct RpcRequest {
+pub struct RpcRequest {
     #[allow(dead_code)] // envelope conformity; we never branch on it
     jsonrpc: String,
     #[serde(default)]
@@ -36,7 +36,7 @@ struct RpcRequest {
 }
 
 #[derive(Debug, Serialize)]
-struct RpcResponse {
+pub struct RpcResponse {
     #[allow(dead_code)] // serialized to the wire, never read in-process
     jsonrpc: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,7 +61,7 @@ fn rpc_ok(id: Option<Value>, result: Value) -> RpcResponse {
         error: None,
     }
 }
-fn rpc_err(id: Option<Value>, code: i64, message: String) -> RpcResponse {
+pub fn rpc_err(id: Option<Value>, code: i64, message: String) -> RpcResponse {
     RpcResponse {
         jsonrpc: "2.0",
         id,
@@ -207,58 +207,63 @@ fn text_result(v: &impl Serialize, is_error: bool) -> Value {
 
 // ---------- dispatch ----------
 
-async fn handle_rpc(
-    State(hub): State<Shared>,
-    headers: HeaderMap,
-    Json(req): Json<RpcRequest>,
-) -> Json<RpcResponse> {
+/// Transport-free JSON-RPC handling: shared by the axum HTTP route and the
+/// stdio loop. Returns `None` for notifications (no response on the wire).
+pub fn handle_json_rpc(hub: &Hub, conn: &str, req: &RpcRequest) -> Option<RpcResponse> {
+    if req.method.starts_with("notifications/") {
+        return None;
+    }
     let id = req.id.clone();
-    match req.method.as_str() {
-        "initialize" => Json(rpc_ok(
+    let response = match req.method.as_str() {
+        "initialize" => rpc_ok(
             id,
             json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "rust-wiki", "version": SERVER_VERSION}
             }),
-        )),
-        "notifications/initialized" | "notifications/cancelled" => Json(rpc_ok(None, json!({}))),
-        "ping" => Json(rpc_ok(id, json!({}))),
+        ),
+        "ping" => rpc_ok(id, json!({})),
         "tools/list" => {
             let tools: Vec<Value> = tools()
                 .iter()
                 .map(|(name, desc, schema)| json!({"name": name, "description": desc, "inputSchema": schema}))
                 .collect();
-            Json(rpc_ok(id, json!({"tools": tools})))
+            rpc_ok(id, json!({"tools": tools}))
         }
         "tools/call" => {
-            let conn = headers
-                .get("mcp-session-id")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "default".into());
-            let params = req.params.unwrap_or(json!({}));
+            let params = req.params.clone().unwrap_or(json!({}));
             let name = params["name"].as_str().unwrap_or("");
             let args = params["arguments"].clone();
-            let space = arg_str(&args, "space").or_else(|| hub_pinned(&hub, &conn));
-            let result = dispatch(hub.as_ref(), &conn, name, space.as_deref(), &args);
+            let space = arg_str(&args, "space");
+            let result = dispatch(hub, conn, name, space.as_deref(), &args);
             match result {
-                Ok(v) => Json(rpc_ok(id, text_result(&v, false))),
-                Err(e) => Json(rpc_ok(
+                Ok(v) => rpc_ok(id, text_result(&v, false)),
+                Err(e) => rpc_ok(
                     id,
                     json!({
                         "content": [{"type": "text", "text": format!("{}: {}", e.code, e.message)}],
                         "isError": true
                     }),
-                )),
+                ),
             }
         }
-        other => Json(rpc_err(id, -32601, format!("method not found: {other}"))),
-    }
+        other => rpc_err(id, -32601, format!("method not found: {other}")),
+    };
+    Some(response)
 }
 
-fn hub_pinned(_hub: &Hub, _conn: &str) -> Option<String> {
-    None // per-connection pins resolve inside Hub via use_space; space arg still wins
+async fn handle_rpc(
+    State(hub): State<Shared>,
+    headers: HeaderMap,
+    Json(req): Json<RpcRequest>,
+) -> Json<RpcResponse> {
+    let conn = headers
+        .get("mcp-session-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "default".into());
+    Json(handle_json_rpc(hub.as_ref(), &conn, &req).unwrap_or_else(|| rpc_ok(None, json!({}))))
 }
 
 fn arg_str(args: &Value, key: &str) -> Option<String> {
@@ -409,6 +414,29 @@ pub async fn serve(hub: Hub, addr: SocketAddr) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stdio_handler_initialize_and_notification_suppression() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = crate::hub::Hub::new(tmp.path().to_path_buf());
+        // initialize -> Some(response)
+        let init = RpcRequest {
+            jsonrpc: "2.0".into(),
+            id: Some(serde_json::json!(1)),
+            method: "initialize".into(),
+            params: None,
+        };
+        let resp = handle_json_rpc(&hub, "stdio", &init).unwrap();
+        assert_eq!(resp.id, Some(serde_json::json!(1)));
+        // notification -> None (suppressed on the wire)
+        let note = RpcRequest {
+            jsonrpc: "2.0".into(),
+            id: None,
+            method: "notifications/initialized".into(),
+            params: None,
+        };
+        assert!(handle_json_rpc(&hub, "stdio", &note).is_none());
+    }
+
     use super::*;
     use crate::hub::UrlFetcher;
 

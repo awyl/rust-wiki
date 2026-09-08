@@ -12,11 +12,17 @@ knowledge base.
 
 ```bash
 cargo build --release
-./target/release/rust-wiki            # serve on 0.0.0.0:8484
+./target/release/rust-wiki            # MCP over stdio (default — for MCP hosts)
+./target/release/rust-wiki serve      # MCP over HTTP on 0.0.0.0:8484
 ```
 
-Point any MCP client at `http://<host>:8484/mcp` (streamable HTTP,
-JSON-RPC; responses may be SSE-framed).
+**stdio (default):** newline-delimited JSON-RPC on stdin/stdout — the mode
+for MCP hosts that spawn the binary themselves (aiproxy, Claude Desktop,
+pi). Protocol owns stdout; all diagnostics go to stderr.
+
+**HTTP (`serve`):** streamable HTTP at `http://<host>:8484/mcp`
+(JSON-RPC; responses may be SSE-framed) — the mode for sharing one vault
+across containers and machines.
 
 ## Configuration
 
@@ -25,7 +31,7 @@ Precedence: **environment → `<exe_dir>/config.toml` → defaults**.
 | Setting | Env | config.toml | Default |
 |---|---|---|---|
 | Vault root | `WIKI_VAULT_ROOT` | `vault_root` | `<exe_dir>/vaults` |
-| Port | `WIKI_PORT` | `port` | `8484` |
+| Port (HTTP mode) | `WIKI_PORT` | `port` | `8484` |
 | Maintenance interval | `WIKI_CRON_INTERVAL_SECS` | — | `3600` (hourly) |
 | Embedding endpoint | `WIKI_EMBEDDING_URL` | — | unset (feature off) |
 | Embedding model | `WIKI_EMBEDDING_MODEL` | — | `text-embedding-3-small` |
