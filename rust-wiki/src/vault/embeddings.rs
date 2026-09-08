@@ -101,12 +101,15 @@ impl EmbeddingStore {
 
 /// Best-effort single-page upsert after a write (option A: auto-embed on
 /// change). Uses the same title/id/excerpt text shape as `reindex` so
-/// vectors stay comparable. Silent no-op when: no store yet (use reindex
-/// for backfill), stored model differs from the embedder, page unknown to
-/// the registry, or embedding fails. Writes are never blocked by this.
+/// vectors stay comparable. Lazy-creates the store (recording the live
+/// model) when absent — single-page cost only, so the write path never
+/// pays a backfill. Silent no-op when: stored model differs from the
+/// embedder, page unknown to the registry, or embedding fails. Writes
+/// are never blocked by this.
 pub fn upsert_page(vault: &VaultPaths, registry: &Registry, embedder: &dyn Embedder, id: &str) {
-    let Some(mut store) = EmbeddingStore::load(vault) else {
-        return;
+    let mut store = match EmbeddingStore::load(vault) {
+        Some(s) => s,
+        None => EmbeddingStore { model: embedder.model().to_string(), pages: Default::default() },
     };
     if store.model != embedder.model() {
         return;
@@ -242,6 +245,17 @@ mod tests {
         let store = EmbeddingStore::load(&v).unwrap();
         assert_eq!(store.model, "mock");
         assert_eq!(store.pages.len(), 2);
+        assert!(store.pages.contains_key("concepts/retrieval"));
+    }
+
+    #[test]
+    fn upsert_creates_store_when_absent() {
+        let (_t, v, reg) = setup();
+        assert!(EmbeddingStore::load(&v).is_none());
+        upsert_page(&v, &reg, &MockEmbedder, "concepts/retrieval");
+        let store = EmbeddingStore::load(&v).unwrap();
+        assert_eq!(store.model, "mock");
+        assert_eq!(store.pages.len(), 1);
         assert!(store.pages.contains_key("concepts/retrieval"));
     }
 
