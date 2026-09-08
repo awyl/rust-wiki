@@ -6,6 +6,9 @@ description = "Remote zosmaai-style wiki MCP server: multi-space vaults, mechani
 license = "MIT"
 
 [dependencies]
+pulldown-cmark = "0.12"
+yaml-rust2 = "0.10"
+unicode-normalization = "0.1"
 axum = "0.8"
 rmcp = { version = "0.3", features = ["server", "transport-streamable-http-server", "transport-worker"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }

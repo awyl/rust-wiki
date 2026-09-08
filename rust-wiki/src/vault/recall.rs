@@ -43,7 +43,7 @@ fn field_score(tokens: &[String], field: &str, weight: f64) -> f64 {
 }
 
 fn chunks_of(text: &str) -> Vec<String> {
-    let (_, body) = super::registry::split_frontmatter(text);
+    let body = super::registry::body_of(text);
     let body: Vec<&str> = body
         .lines()
         .filter(|l| !l.trim_start().starts_with('#'))

@@ -200,12 +200,23 @@ Adopted subset of zosmaai's OKF Foundation spec:
   generated projections — direct writes rejected in OKF mode.
 - Registry entries carry OKF `description` (frontmatter, optional).
 
-Deviations from zosmaai Foundation (documented, deliberate):
+Frontmatter, links, identity (2026-09-07, hardened full support):
 
-- Lenient frontmatter parsing (house LLM-friendly style) instead of
-  fail-closed YAML diagnostics.
-- Regex link extraction instead of a CommonMark AST parser.
-- ASCII slugs instead of NFC-normalized identity.
+- Frontmatter: full YAML via yaml-rust2 (nested maps/seqs, flow
+  collections, Karpathy-style tags/dates/aliases, OKF nested
+  provenance) behind a fail-closed security shell: anchors/aliases,
+  custom tags, multi-doc rejected by pre-scan; 128 KiB / depth-32
+  caps; duplicate keys rejected; frontmatter OPTIONAL (Karpathy-style
+  plain pages scan fine, title falls back to heading/stem).
+- Links: CommonMark event walk (pulldown-cmark) — code spans/blocks,
+  images, autolinks, raw HTML never produce backlinks; fragment/query
+  stripped, percent-decoded, dot-segments resolved against the source
+  page; bundle escape -> link_path_escape diagnostic. Wikilinks kept.
+- Identity: page ids NFC-normalized at scan; NFC+casefold collisions
+  rejected (concept_identity_collision), page excluded.
+- Diagnostics live in registry.json; rejected pages never partially
+  enter the registry. ensure_page no longer double-fences content that
+  already carries frontmatter.
 
 ## wiki_watch (built-in scheduler, 2026-09-07)
 

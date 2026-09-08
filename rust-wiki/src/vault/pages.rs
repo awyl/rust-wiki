@@ -120,7 +120,13 @@ pub fn ensure_page(
         Some(c) => apply_gate(c, &read_registry(vault)?, gate)?,
         None => template_body(vault, page_type, title),
     };
-    let doc = format!("---\ntitle: \"{title}\"\ntype: {page_type}\n---\n\n{body}");
+    // If caller content already carries frontmatter, use it verbatim —
+    // never nest a second fence (the hardened scan rejects that).
+    let doc = if body.trim_start().starts_with("---") {
+        body.trim_start().to_string()
+    } else {
+        format!("---\ntitle: \"{title}\"\ntype: {page_type}\n---\n\n{body}")
+    };
     fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     fs::write(&path, doc).map_err(|e| e.to_string())?;
     rebuild_metadata(vault)?;

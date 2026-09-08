@@ -36,52 +36,139 @@ pub struct PageEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct Registry {
     pub pages: BTreeMap<String, PageEntry>,
+    /// Fail-closed scan diagnostics (bad frontmatter, identity collisions,
+    /// link escapes). Skipped pages never enter `pages` — no partial reads.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<ScanDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ScanDiagnostic {
+    pub path: String,
+    pub code: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub line: usize,
+    pub message: String,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 // ---------- markdown parsing ----------
 
-/// Split `---\n...\n---` frontmatter from body. Returns (fm_yaml, body).
-pub(crate) fn split_frontmatter(text: &str) -> (Option<&str>, &str) {
-    let t = text.trim_start();
-    if let Some(rest) = t.strip_prefix("---\n") {
-        if let Some(end) = rest.find("\n---") {
-            let fm = &rest[..end];
-            let body_start = end + 4; // "\n---"
-            let body = rest[body_start..]
-                .strip_prefix('\n')
-                .unwrap_or(&rest[body_start..]);
-            return (Some(fm), body);
-        }
-    }
-    (None, text)
+/// Body text after the frontmatter fence (for excerpt/heading extraction).
+pub(crate) fn body_of(text: &str) -> &str {
+    fm_body(text)
 }
 
-/// Minimal frontmatter scalar extraction: `title:` and `type:` values.
-fn fm_scalar(fm: &str, key: &str) -> Option<String> {
-    for line in fm.lines() {
-        let line = line.trim();
-        if let Some(v) = line.strip_prefix(&format!("{key}:")) {
-            let v = v.trim().trim_matches('"').trim_matches('\'');
-            if !v.is_empty() {
-                return Some(v.to_string());
+/// Body text after the frontmatter fence (lenient: for excerpt/heading
+/// extraction on pages that already passed hardened parsing).
+fn fm_body(text: &str) -> &str {
+    match super::frontmatter::split_block(text) {
+        Ok((_, body)) => body,
+        Err(_) => text,
+    }
+}
+
+/// Extract outbound page ids. Markdown links are parsed with a CommonMark
+/// engine (pulldown-cmark): code spans/blocks, images, autolinks and raw
+/// HTML never produce backlinks; reference links do. Wikilinks are kept
+/// for compatibility. Returns (ids, escape_diagnostics).
+pub fn extract_links(
+    body: &str,
+    source_id: &str,
+    escapes: &mut Vec<ScanDiagnostic>,
+) -> Vec<String> {
+    use pulldown_cmark::{Event, Parser, Tag};
+    let mut out: Vec<String> = Vec::new();
+    let opts = pulldown_cmark::Options::ENABLE_FOOTNOTES;
+    for event in Parser::new_ext(body, opts) {
+        if let Event::Start(Tag::Link { dest_url, .. }) = event {
+            match resolve_link(&dest_url, source_id) {
+                Ok(Some(id)) => push_id(&mut out, &id),
+                Ok(None) => {} // external scheme
+                Err(msg) => escapes.push(ScanDiagnostic {
+                    path: source_id.to_string(),
+                    code: "link_path_escape".into(),
+                    line: 0,
+                    message: msg,
+                }),
             }
         }
     }
-    None
-}
-
-/// Extract outbound page ids: markdown links to /folder/page.md and [[wikilinks]].
-pub fn extract_links(body: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    // [label](/folder/page.md) — link target starting with "/" and ending .md
-    for caps in markdown_link_re().captures_iter(body) {
-        push_id(&mut out, &caps[1]);
-    }
-    // [[folder/page]] (legacy, readable)
+    // [[folder/page]] and [[folder/page|label]] (legacy, readable)
     for caps in wikilink_re().captures_iter(body) {
-        push_id(&mut out, &caps[1]);
+        let target = caps[1].split('|').next().unwrap_or(&caps[1]);
+        push_id(&mut out, target);
     }
     out
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() + 1 && i + 2 < bytes.len() + 1 {
+            let hex = bytes.get(i + 1..i + 3);
+            if let Some(h) = hex {
+                if let Ok(v) = u8::from_str_radix(std::str::from_utf8(h).unwrap_or(""), 16) {
+                    out.push(v);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Normalize a markdown link destination to a page id.
+/// Ok(None) = external/uninteresting; Err = escapes the wiki root.
+fn resolve_link(dest: &str, source_id: &str) -> Result<Option<String>, String> {
+    // strip query + fragment
+    let mut target = dest.split(['#', '?']).next().unwrap_or("").to_string();
+    if target.is_empty() {
+        return Ok(None);
+    }
+    if ["http://", "https://", "mailto:", "ftp://"]
+        .iter()
+        .any(|p| target.starts_with(p))
+    {
+        return Ok(None);
+    }
+    target = percent_decode(&target);
+    let base = source_id.rsplit_once('/').map(|(d, _)| d.to_string());
+    // resolve dot segments
+    let joined = if target.starts_with('/') {
+        target.trim_start_matches('/').to_string()
+    } else {
+        match &base {
+            Some(dir) => format!("{dir}/{target}"),
+            None => target.clone(),
+        }
+    };
+    let mut parts: Vec<&str> = Vec::new();
+    for seg in joined.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return Err(format!("link '{dest}' escapes the wiki root"));
+                }
+            }
+            other => parts.push(other),
+        }
+    }
+    let id = parts.join("/");
+    let id = id.trim_end_matches(".md");
+    if id.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(id.to_string()))
 }
 
 fn push_id(out: &mut Vec<String>, raw: &str) {
@@ -89,11 +176,6 @@ fn push_id(out: &mut Vec<String>, raw: &str) {
     if !id.is_empty() && !out.contains(&id.to_string()) {
         out.push(id.to_string());
     }
-}
-
-fn markdown_link_re() -> &'static regex::Regex {
-    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"\[[^\]]*\]\(/([^)\s]+\.md)\)").unwrap())
 }
 
 fn wikilink_re() -> &'static regex::Regex {
@@ -119,7 +201,6 @@ fn first_heading_or(body: &str, fallback: &str) -> String {
 }
 
 fn excerpt_of(body: &str, max: usize) -> String {
-    let (_, body) = split_frontmatter(body);
     let text: String = body
         .lines()
         .filter(|l| !l.trim_start().starts_with('#'))
@@ -153,6 +234,8 @@ pub fn rebuild_metadata(vault: &VaultPaths) -> Result<Registry, String> {
     let mut registry = Registry::default();
     let wiki_dir = vault.wiki_pages();
     collect_pages(vault, &wiki_dir, &mut registry)?;
+    registry.diagnostics.sort();
+    registry.diagnostics.dedup();
     // sort links for deterministic output
     for p in registry.pages.values_mut() {
         p.links.sort();
@@ -194,6 +277,9 @@ pub fn inbound_links(registry: &Registry) -> std::collections::BTreeMap<String, 
 }
 
 fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Result<(), String> {
+    use unicode_normalization::UnicodeNormalization;
+    // identity collision detection: NFC + case-fold keys must be unique
+    let mut seen_ids: std::collections::BTreeMap<String, String> = Default::default();
     if !dir.exists() {
         return Ok(());
     }
@@ -216,7 +302,35 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
             }
             let text =
                 fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
-            let (fm, body) = split_frontmatter(&text);
+            // identity: NFC-normalize, then fail closed on collisions
+            let id: String = id.nfc().collect();
+            let id_key = id.to_lowercase();
+            if let Some(prev) = seen_ids.get(&id_key) {
+                registry.diagnostics.push(ScanDiagnostic {
+                    path: id.clone(),
+                    code: "concept_identity_collision".into(),
+                    line: 0,
+                    message: format!("collides with '{prev}' after NFC/case folding"),
+                });
+                continue;
+            }
+            seen_ids.insert(id_key, id.clone());
+            // fail-closed frontmatter: any diagnostic excludes the page
+            let fm = match super::frontmatter::parse(&text) {
+                Ok(fm) => fm,
+                Err(diags) => {
+                    for d in diags {
+                        registry.diagnostics.push(ScanDiagnostic {
+                            path: id.clone(),
+                            code: d.code,
+                            line: d.line,
+                            message: d.message,
+                        });
+                    }
+                    continue;
+                }
+            };
+            let body = fm_body(&text);
             let folder = id.split('/').next().unwrap_or("pages");
             let file_stem = path
                 .file_stem()
@@ -224,19 +338,20 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
                 .unwrap_or("page")
                 .to_string();
             let title = fm
-                .and_then(|f| fm_scalar(f, "title"))
+                .scalar("title")
                 .unwrap_or_else(|| first_heading_or(body, &file_stem));
             let page_type = fm
-                .and_then(|f| fm_scalar(f, "type"))
+                .scalar("type")
                 .unwrap_or_else(|| folder.trim_end_matches('s').to_string());
-            let description = fm
-                .and_then(|f| fm_scalar(f, "description"))
-                .unwrap_or_default();
+            let description = fm.scalar("description").unwrap_or_default();
             let source_id = if folder == "sources" {
                 Some(file_stem.clone())
             } else {
                 None
             };
+            let mut escapes: Vec<ScanDiagnostic> = Vec::new();
+            let links = extract_links(body, &id, &mut escapes);
+            registry.diagnostics.extend(escapes);
             registry.pages.insert(
                 id.clone(),
                 PageEntry {
@@ -248,7 +363,7 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
                         .unwrap_or(&path)
                         .to_string_lossy()
                         .replace('\\', "/"),
-                    links: extract_links(body),
+                    links,
                     excerpt: excerpt_of(body, 200),
                     description,
                     source_id,

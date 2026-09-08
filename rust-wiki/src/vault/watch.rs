@@ -73,9 +73,9 @@ pub fn run_all_spaces(root: &Path) -> Vec<String> {
     let hub = Hub::new(root.to_path_buf());
     spaces
         .into_iter()
-        .filter_map(|space| match cron_cycle(&hub, &space) {
-            Ok(line) => Some(line),
-            Err(e) => Some(format!("[rust-wiki cron] space={space} ERROR {e}")),
+        .map(|space| match cron_cycle(&hub, &space) {
+            Ok(line) => line,
+            Err(e) => format!("[rust-wiki cron] space={space} ERROR {e}"),
         })
         .collect()
 }
@@ -142,7 +142,7 @@ mod tests {
     fn interval_env_parsing() {
         // default when unset — can't unset safely in-process, so just
         // verify the parse paths via the same logic shape
-        assert_eq!("x".parse::<u64>().is_ok(), false);
+        assert!("x".parse::<u64>().is_err());
         let _ = interval_from_env(); // smoke: must not panic
     }
 }
