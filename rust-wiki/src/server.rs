@@ -129,6 +129,20 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "properties": {"space": {"type": "string"}, "id": {"type": "string"}, "content": {"type": "string"}},
         "required": ["id", "content"]
     })),
+    ("wiki_write_personal_page", "Update an existing page in the PERSONAL/root layer (cross-project global wiki). The only write path to root — no space switch needed.", json!({
+        "type": "object",
+        "properties": {"id": {"type": "string"}, "content": {"type": "string"}},
+        "required": ["id", "content"]
+    })),
+    ("wiki_ensure_personal_page", "Create an entity/concept/synthesis/analysis page in the PERSONAL/root layer (no overwrite). No space switch needed.", json!({
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis"]},
+            "title": {"type": "string"},
+            "content": {"type": "string"}
+        },
+        "required": ["type", "title"]
+    })),
     ("wiki_recall", "Layered relevance search (active space + personal layer) for task context.", json!({
         "type": "object",
         "properties": {
@@ -335,6 +349,17 @@ fn dispatch(
             args["id"].as_str().unwrap_or(""),
             args["content"].as_str().unwrap_or(""),
         )?)?),
+        "wiki_write_personal_page" => Ok(serde_json::to_value(hub.write_page(
+            crate::vault::layout::SPACE_PERSONAL,
+            args["id"].as_str().unwrap_or(""),
+            args["content"].as_str().unwrap_or(""),
+        )?)?),
+        "wiki_ensure_personal_page" => Ok(serde_json::to_value(hub.ensure_page(
+            crate::vault::layout::SPACE_PERSONAL,
+            args["type"].as_str().unwrap_or(""),
+            args["title"].as_str().unwrap_or(""),
+            args["content"].as_str(),
+        )?)?),
         "wiki_recall" => Ok(serde_json::to_value(hub.recall(
             need_space!(),
             args["query"].as_str().unwrap_or(""),
@@ -523,11 +548,23 @@ mod tests {
             .unwrap()
             .contains("not_found"));
 
+        // personal tools: no space switch, write to root layer
+        let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"wiki_bootstrap","arguments":{"space":"personal"}}})).await;
+        assert_eq!(r["result"]["isError"], false);
+        let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"wiki_ensure_personal_page","arguments":{"type":"concept","title":"Global Note","content":"---\ntitle: \"Global Note\"\ntype: concept\n---\n\nshared\n"}}})).await;
+        assert_eq!(r["result"]["isError"], false);
+        assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("concepts/global-note"));
+        let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"wiki_write_personal_page","arguments":{"id":"concepts/global-note","content":"---\ntitle: \"Global Note\"\ntype: concept\n---\n\nshared v2\n"}}})).await;
+        assert_eq!(r["result"]["isError"], false);
+        // project read of personal id stays scoped: not visible in proj
+        let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"wiki_read_page","arguments":{"space":"proj","id":"concepts/global-note"}}})).await;
+        assert_eq!(r["result"]["isError"], true);
+
         // unknown method
         let r = rpc(
             &client,
             &url,
-            json!({"jsonrpc":"2.0","id":9,"method":"nope"}),
+            json!({"jsonrpc":"2.0","id":13,"method":"nope"}),
         )
         .await;
         assert_eq!(r["error"]["code"], -32601);

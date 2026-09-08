@@ -35,6 +35,9 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   let settledRuns = 0;
   let retroProposed = false;
   let bootstrapRan = false;
+  // Space pin: first successful wiki_use_space wins. Personal switching is
+  // prohibited — personal writes go through the dedicated personal tools.
+  let pinnedSpace: string | null = null;
   let wikiName: string | null = null;
   let nudge: string | null = null;
   let config: AutopilotConfig = DEFAULT_CONFIG;
@@ -45,10 +48,41 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   // retro fires (they may have accumulated since).
   let healthChecked = false;
 
+  const isUseSpaceCall = (toolName: string) =>
+    toolName === "wiki_use_space" || toolName.endsWith("__wiki_use_space");
+
+  pi.on("tool_call", async (event) => {
+    const e = event as unknown as { toolName?: string; input?: { space?: string } };
+    if (!e.toolName || !isUseSpaceCall(e.toolName)) return;
+    const requested = e.input?.space;
+    if (!requested) return;
+    if (requested === "personal") {
+      return {
+        block: true,
+        reason:
+          'wiki_use_space("personal") is prohibited — write to the personal layer with wiki_ensure_personal_page / wiki_write_personal_page instead (no space switch needed).',
+      };
+    }
+    if (pinnedSpace && requested !== pinnedSpace) {
+      return {
+        block: true,
+        reason: `Wiki space already pinned to "${pinnedSpace}" this session — wiki_use_space("${requested}") blocked.`,
+      };
+    }
+  });
+
+  pi.on("tool_result", async (event) => {
+    const e = event as unknown as { toolName?: string; input?: { space?: string }; isError?: boolean };
+    if (!e.toolName || !isUseSpaceCall(e.toolName) || e.isError) return;
+    const requested = e.input?.space;
+    if (requested && requested !== "personal" && !pinnedSpace) pinnedSpace = requested;
+  });
+
   pi.on("session_start", async (_event, ctx) => {
     settledRuns = 0;
     retroProposed = false;
     bootstrapRan = false;
+    pinnedSpace = null;
     wikiName = deriveWikiName(ctx.cwd);
     const loaded = loadConfig(ctx.cwd);
     config = loaded.config;

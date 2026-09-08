@@ -240,3 +240,56 @@ describe("health hints (C+D)", () => {
     expect(sent).toHaveLength(1); // retro fired once
   });
 });
+
+describe("use_space intercept", () => {
+  const useSpace = (space: string) => ({ toolName: "wiki_use_space", input: { space } });
+  const useSpaceResult = (space: string, isError = false) => ({
+    toolName: "wiki_use_space",
+    input: { space },
+    isError,
+  });
+
+  it("first use_space pins; different space blocked", async () => {
+    const { handlers } = await loadExtension();
+    await handlers.get("session_start")!({}, fakeCtx("/work"));
+    expect(await handlers.get("tool_call")!(useSpace("proj-a"), {})).toBeUndefined();
+    await handlers.get("tool_result")!(useSpaceResult("proj-a"), {});
+    expect(await handlers.get("tool_call")!(useSpace("proj-a"), {})).toBeUndefined(); // idempotent
+    const blocked = await handlers.get("tool_call")!(useSpace("proj-b"), {});
+    expect(blocked).toEqual({
+      block: true,
+      reason: expect.stringContaining('pinned to "proj-a"'),
+    });
+  });
+
+  it("use_space personal always blocked", async () => {
+    const { handlers } = await loadExtension();
+    await handlers.get("session_start")!({}, fakeCtx("/work"));
+    const blocked = await handlers.get("tool_call")!(useSpace("personal"), {});
+    expect(blocked).toEqual({ block: true, reason: expect.stringContaining("personal") });
+  });
+
+  it("failed use_space does not pin", async () => {
+    const { handlers } = await loadExtension();
+    await handlers.get("session_start")!({}, fakeCtx("/work"));
+    await handlers.get("tool_result")!(useSpaceResult("proj-a", true), {});
+    expect(await handlers.get("tool_call")!(useSpace("proj-b"), {})).toBeUndefined();
+  });
+
+  it("pin resets on new session", async () => {
+    const { handlers } = await loadExtension();
+    const ctx = fakeCtx("/work");
+    await handlers.get("session_start")!({}, ctx);
+    await handlers.get("tool_result")!(useSpaceResult("proj-a"), {});
+    await handlers.get("session_start")!({}, ctx);
+    expect(await handlers.get("tool_call")!(useSpace("proj-b"), {})).toBeUndefined();
+  });
+
+  it("non-space tools untouched", async () => {
+    const { handlers } = await loadExtension();
+    await handlers.get("session_start")!({}, fakeCtx("/work"));
+    expect(
+      await handlers.get("tool_call")!({ toolName: "wiki_recall", input: {} }, {}),
+    ).toBeUndefined();
+  });
+});

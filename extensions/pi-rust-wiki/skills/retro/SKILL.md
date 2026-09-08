@@ -11,8 +11,10 @@ handles mechanics (registry, backlinks, index — rebuilt on every write).
 
 ## Procedure
 
-1. **Pin**: `wiki_use_space` with the session's space (from the nudge).
-   `exists: false` → `wiki_bootstrap` first.
+1. **Pin**: `wiki_bootstrap` the session's space (from the nudge;
+   idempotent), then `wiki_use_space` with the same space. Never
+   `wiki_use_space("personal")` — prohibited; cross-project writes go
+   through `wiki_ensure_personal_page` / `wiki_write_personal_page`.
 2. **Extract** 2-6 durable items from the session: what was learned or
    decided, type (concept / analysis / synthesis / entity), confidence,
    target slug, create-vs-update.

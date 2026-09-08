@@ -13,6 +13,13 @@ Autonomous [rust-wiki](../rust-wiki/) skill triggers for
 
 Two skills are vendored and load natively — `/skill:research`, `/skill:retro`.
 
+## Space guardrails
+
+- `wiki_use_space` pins once: the first successful pin wins; a later pin to a
+different space is blocked with the pinned name in the reason.
+- `wiki_use_space("personal")` is always blocked — cross-project writes go
+through `wiki_ensure_personal_page` / `wiki_write_personal_page` (no switch).
+
 ## Install
 
 ```bash

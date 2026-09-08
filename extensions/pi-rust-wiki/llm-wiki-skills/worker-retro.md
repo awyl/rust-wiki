@@ -8,8 +8,12 @@ questions, never commit to git, wiki writes only.
 
 ## Procedure
 
-1. Pin + verify: call `wiki_use_space` with the space from the launch
-   message. If it reports `exists: false`, call `wiki_bootstrap` first.
+1. Pin + verify: call `wiki_bootstrap` with the space from the launch
+   message (creates the vault if missing; idempotent), then
+   `wiki_use_space` with the same space to pin this connection. Never
+   `wiki_use_space("personal")` — it is prohibited; cross-project items
+   go through `wiki_ensure_personal_page` / `wiki_write_personal_page`
+   (no space switch needed).
 2. Read the extraction file. Each item names: what, type, confidence,
    target slug, and whether it UPDATES or CREATEs.
 3. Apply items:
