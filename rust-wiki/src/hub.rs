@@ -378,6 +378,7 @@ impl WikiApi for Hub {
             orphans: st.orphans,
             gaps: st.gaps,
             health: st.health,
+            git: crate::vault::git::read_state(&self.root),
         })
     }
 
@@ -515,6 +516,23 @@ mod tests {
     }
 
     #[test]
+    fn status_carries_git_state_after_tick() {
+        let tmp = tempfile::tempdir().unwrap();
+        let h = Hub::with_injections(
+            tmp.path().to_path_buf(),
+            Box::new(StaticFetcher),
+            Box::new(|| "2026-09-07T12:00:00Z".into()),
+        );
+        let api: &dyn WikiApi = &h;
+        api.bootstrap("proj", None).unwrap();
+        assert!(api.status("proj").unwrap().git.is_none());
+        crate::vault::git::tick(tmp.path(), 0, "2026-09-07T12:00:00Z");
+        let st = api.status("proj").unwrap();
+        let g = st.git.expect("git state after tick");
+        assert!(g.ok, "clean tick: {}", g.detail);
+    }
+
+    #[test]
     fn end_to_end_via_trait_object() {
         let h = hub();
         let api: &dyn WikiApi = &h;
@@ -570,6 +588,8 @@ mod tests {
         // status + lint
         let st = api.status("proj").unwrap();
         assert!(st.total_pages >= 5);
+        // git state surfaces through status (absent until first tick)
+        assert!(st.git.is_none());
         let l = api.lint("proj", false).unwrap();
         assert!(l.missing_pages.is_empty() || !l.auto_fixed.is_empty() || l.auto_fixed.is_empty()); // shape check
         let _ = l;

@@ -553,7 +553,10 @@ mod tests {
         assert_eq!(r["result"]["isError"], false);
         let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"wiki_ensure_personal_page","arguments":{"type":"concept","title":"Global Note","content":"---\ntitle: \"Global Note\"\ntype: concept\n---\n\nshared\n"}}})).await;
         assert_eq!(r["result"]["isError"], false);
-        assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("concepts/global-note"));
+        assert!(r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("concepts/global-note"));
         let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"wiki_write_personal_page","arguments":{"id":"concepts/global-note","content":"---\ntitle: \"Global Note\"\ntype: concept\n---\n\nshared v2\n"}}})).await;
         assert_eq!(r["result"]["isError"], false);
         // project read of personal id stays scoped: not visible in proj

@@ -102,7 +102,45 @@ fn boot() -> anyhow::Result<Hub> {
             personal.space_root.display()
         );
     }
+    // Git backing at the vault root (init on first boot; auto-commit on
+    // idle, pull --rebase with abort-on-conflict, push when upstream
+    // exists). Best-effort — never blocks serving.
+    match rust_wiki::vault::git::ensure_repo(&root) {
+        Ok(true) => eprintln!("git backing initialized at {}", root.display()),
+        Ok(false) => {}
+        Err(e) => eprintln!("git backing unavailable: {e}"),
+    }
     let hub = Hub::new(root.clone());
+    // Rescan every space after a pull moved HEAD (human/Obsidian edits
+    // need reindexing to become visible).
+    let rescan_root = root.clone();
+    let rescan = move || {
+        let Ok(entries) = std::fs::read_dir(&rescan_root) else {
+            return;
+        };
+        for name in entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir() && p.join("config.json").is_file())
+            .filter_map(|p| {
+                p.file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+            })
+        {
+            let v = rust_wiki::vault::layout::VaultPaths::new(&rescan_root, &name);
+            if let Err(e) = rust_wiki::vault::registry::rebuild_metadata(&v) {
+                eprintln!("git rescan {name}: {e}");
+            }
+        }
+    };
+    if rust_wiki::vault::git::spawn_git(root.clone(), rescan).is_some() {
+        eprintln!(
+            "git backing armed: every {}s, commit after {}s idle",
+            rust_wiki::vault::git::tick_secs_from_env(),
+            rust_wiki::vault::git::idle_secs_from_env()
+        );
+    }
     // Built-in maintenance scheduler: hourly mechanical cycle across all
     // spaces, on by default. WIKI_CRON_INTERVAL_SECS=0 disables.
     if let Some(handle) = rust_wiki::vault::watch::spawn(root.clone()) {

@@ -109,7 +109,10 @@ impl EmbeddingStore {
 pub fn upsert_page(vault: &VaultPaths, registry: &Registry, embedder: &dyn Embedder, id: &str) {
     let mut store = match EmbeddingStore::load(vault) {
         Some(s) => s,
-        None => EmbeddingStore { model: embedder.model().to_string(), pages: Default::default() },
+        None => EmbeddingStore {
+            model: embedder.model().to_string(),
+            pages: Default::default(),
+        },
     };
     if store.model != embedder.model() {
         return;

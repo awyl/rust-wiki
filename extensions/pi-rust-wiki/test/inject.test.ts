@@ -53,6 +53,32 @@ describe("buildHealthHint", () => {
     expect(hint).toContain("wiki_lint");
   });
 
+  it("git failure surfaces even when vault healthy", () => {
+    const hint = buildHealthHint({
+      space: "s",
+      health: "good",
+      total_pages: 5,
+      orphans: 0,
+      gaps: 0,
+      git: { ok: false, detail: "pull conflict — kept local, needs manual rebase" },
+    })!;
+    expect(hint).toContain("wiki git: pull conflict");
+    expect(hint).toContain("needs human fix");
+  });
+
+  it("git ok stays silent", () => {
+    expect(
+      buildHealthHint({
+        space: "s",
+        health: "good",
+        total_pages: 5,
+        orphans: 0,
+        gaps: 0,
+        git: { ok: true, detail: "in sync" },
+      }),
+    ).toBeUndefined();
+  });
+
   it("healthForPrompt resolves null on unreachable server", async () => {
     expect(await healthForPrompt("http://127.0.0.1:1/mcp", "", "s")).toBeNull();
   });

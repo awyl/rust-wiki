@@ -143,6 +143,8 @@ pub struct StatusOut {
     pub gaps: u64,
     /// "empty" | "good" | "warning"
     pub health: String,
+    /// Git backing state (None when backing never ticked/disabled).
+    pub git: Option<crate::vault::git::GitState>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]

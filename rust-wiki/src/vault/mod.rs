@@ -14,5 +14,6 @@ pub use bootstrap::{bootstrap, BootstrapError};
 pub use layout::{VaultPaths, SPACE_PERSONAL};
 pub mod embeddings;
 pub mod frontmatter;
+pub mod git;
 pub mod okf;
 pub mod watch;

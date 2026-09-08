@@ -92,6 +92,7 @@ export interface WikiStatusDTO {
   total_pages: number;
   orphans: number;
   gaps: number;
+  git?: { ok: boolean; detail: string } | null;
 }
 
 /**
@@ -99,8 +100,17 @@ export interface WikiStatusDTO {
  * successes stay silent; only problems surface.
  */
 export function buildHealthHint(status: WikiStatusDTO): string | undefined {
-  if (status.health === "good" || status.health === "empty") return undefined;
-  return `⚠ wiki health: ${status.orphans} orphans, ${status.gaps} gaps — run wiki_lint for details`;
+  const parts: string[] = [];
+  if (status.health !== "good" && status.health !== "empty") {
+    parts.push(
+      `wiki health: ${status.orphans} orphans, ${status.gaps} gaps — run wiki_lint for details`,
+    );
+  }
+  if (status.git && !status.git.ok) {
+    parts.push(`wiki git: ${status.git.detail} — needs human fix`);
+  }
+  if (parts.length === 0) return undefined;
+  return `⚠ ${parts.join(" | ")}`;
 }
 
 /**
