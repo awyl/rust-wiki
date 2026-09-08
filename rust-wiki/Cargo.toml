@@ -6,17 +6,16 @@ description = "Remote zosmaai-style wiki MCP server: multi-space vaults, mechani
 license = "MIT"
 
 [dependencies]
-pulldown-cmark = "0.12"
-yaml-rust2 = "0.10"
+pulldown-cmark = "0.13"
+yaml-rust2 = "0.12"
 unicode-normalization = "0.1"
 axum = "0.8"
-rmcp = { version = "0.3", features = ["server", "transport-streamable-http-server", "transport-worker"] }
+rmcp = { version = "3", features = ["server", "transport-streamable-http-server", "transport-worker"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yml = "0.0.12"
-toml = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "blocking", "json"] }
+toml = "1"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "blocking", "json"] }
 html2md = "0.2"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
