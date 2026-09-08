@@ -61,6 +61,12 @@ impl Hub {
     }
 
     #[cfg(test)]
+    fn with_embedder(mut self, e: Box<dyn crate::vault::embeddings::Embedder>) -> Self {
+        self.embedder = Some(e);
+        self
+    }
+
+    #[cfg(test)]
     pub fn with_injections(
         root: PathBuf,
         fetch: Box<dyn UrlFetcher>,
@@ -280,8 +286,26 @@ impl WikiApi for Hub {
             }
         };
         let max = max_results.unwrap_or(5).clamp(1, 10);
-        let (hits, links_first) =
-            vr::recall_layered(&v, personal_vault.as_ref(), &registry, query, max);
+        // Semantic blend when a provider is configured AND the space has an
+        // embeddings store: embed the query once, boost lexical scores by
+        // cosine. Any failure degrades silently to pure lexical.
+        let semantic = self.embedder.as_ref().and_then(|e| {
+            let store = crate::vault::embeddings::EmbeddingStore::load(&v)?;
+            if store.pages.is_empty() {
+                return None;
+            }
+            let mut qv = e.embed(&[query.to_string()]).ok()?.pop()?;
+            qv.shrink_to_fit();
+            Some((qv, store))
+        });
+        let (hits, links_first) = vr::recall_layered_semantic(
+            &v,
+            personal_vault.as_ref(),
+            &registry,
+            query,
+            max,
+            semantic.as_ref().map(|(qv, store)| (qv.as_slice(), store)),
+        );
         Ok(RecallOut {
             query: query.to_string(),
             matches: hits
@@ -455,6 +479,7 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vault::embeddings::Embedder;
 
     fn hub() -> Hub {
         let tmp = tempfile::tempdir().unwrap();
@@ -552,5 +577,74 @@ mod tests {
         assert!(WikiApi::status(&h, "p1").is_ok());
         let err = WikiApi::status(&h, "nope").unwrap_err();
         assert_eq!(err.code, "no_vault");
+    }
+
+    struct MockEmbed;
+    impl crate::vault::embeddings::Embedder for MockEmbed {
+        fn model(&self) -> &str {
+            "mock"
+        }
+        fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+            Ok(texts
+                .iter()
+                .map(|t| {
+                    let mut v = vec![0.0f32; 8];
+                    for w in t.to_lowercase().split_whitespace() {
+                        let sum: usize = w.bytes().map(|b| b as usize).sum();
+                        v[sum % 8] += 1.0;
+                    }
+                    v
+                })
+                .collect())
+        }
+    }
+
+    #[test]
+    fn recall_blends_semantic_scores_when_store_present() {
+        use crate::vault::embeddings::EmbeddingStore;
+        let h = hub().with_embedder(Box::new(MockEmbed));
+        let api: &dyn WikiApi = &h;
+        api.bootstrap("proj", None).unwrap();
+        let e = api
+            .ensure_page(
+                "proj",
+                "concept",
+                "Cache safety",
+                Some("Body about prompt cache prefixes."),
+            )
+            .unwrap();
+
+        // Store a mock vector for the page (from its own text) in meta/.
+        let mut store = EmbeddingStore {
+            model: "mock".into(),
+            pages: Default::default(),
+        };
+        let v = MockEmbed
+            .embed(&["Cache safety prompt cache prefixes.".to_string()])
+            .unwrap()
+            .pop()
+            .unwrap();
+        store.pages.insert(e.id.clone(), v);
+        let vp = crate::vault::layout::VaultPaths::new(&h.root, "proj");
+        store.save(&vp).unwrap();
+
+        let blended = api.recall("proj", "cache", None).unwrap();
+        let hit = blended.matches.iter().find(|m| m.id == e.id).unwrap();
+
+        // Same vault, no embedder => pure lexical baseline.
+        let plain = Hub::with_injections(
+            h.root.clone(),
+            Box::new(StaticFetcher),
+            Box::new(|| "2026-09-07T12:00:00Z".into()),
+        );
+        let base = plain.recall("proj", "cache", None).unwrap();
+        let b = base.matches.iter().find(|m| m.id == e.id).unwrap();
+
+        assert!(
+            hit.score > b.score,
+            "blended {} should exceed lexical {}",
+            hit.score,
+            b.score
+        );
     }
 }
