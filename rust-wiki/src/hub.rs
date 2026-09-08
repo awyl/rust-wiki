@@ -131,6 +131,19 @@ pub fn default_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("vaults"))
 }
 
+impl Hub {
+    /// Auto-embed on change (best-effort): refresh one page's vector after a
+    /// successful write. Registry is fresh on disk (writers rebuild it).
+    /// No-op without a provider or store; never blocks or fails the write.
+    fn embed_page(&self, v: &crate::vault::layout::VaultPaths, id: &str) {
+        if let Some(embedder) = self.embedder.as_ref() {
+            if let Ok(registry) = registry::rebuild_metadata(v) {
+                crate::vault::embeddings::upsert_page(v, &registry, embedder.as_ref(), id);
+            }
+        }
+    }
+}
+
 impl WikiApi for Hub {
     fn bootstrap(&self, space: &str, mode: Option<&str>) -> ApiResult<BootstrapOut> {
         Self::guard_space(space)?;
@@ -252,6 +265,9 @@ impl WikiApi for Hub {
         let gate = Self::gate_mode(&v);
         let (id, created) = vp::ensure_page(&v, page_type, title, content, gate)
             .map_err(|e| ApiError::new("invalid_argument", e))?;
+        if created {
+            self.embed_page(&v, &id);
+        }
         Ok(EnsurePageOut { id, created })
     }
 
@@ -268,6 +284,7 @@ impl WikiApi for Hub {
         let v = self.target(Some(space), Some(space))?;
         let gate = Self::gate_mode(&v);
         vp::write_page(&v, id, content, gate).map_err(|e| ApiError::new("invalid_argument", e))?;
+        self.embed_page(&v, id);
         Ok(WritePageOut {
             id: id.to_string(),
             updated: true,
@@ -645,6 +662,42 @@ mod tests {
             "blended {} should exceed lexical {}",
             hit.score,
             b.score
+        );
+    }
+
+    #[test]
+    fn write_page_auto_embeds_when_provider_configured() {
+        use crate::vault::embeddings::EmbeddingStore;
+        let h = hub().with_embedder(Box::new(MockEmbed));
+        let api: &dyn WikiApi = &h;
+        api.bootstrap("proj", None).unwrap();
+
+        // Seed an empty store so the upsert path has something to write to.
+        let vp = crate::vault::layout::VaultPaths::new(&h.root, "proj");
+        EmbeddingStore {
+            model: "mock".into(),
+            pages: Default::default(),
+        }
+        .save(&vp)
+        .unwrap();
+
+        let e = api
+            .ensure_page("proj", "concept", "Vector fresh", Some("content body"))
+            .unwrap();
+        assert!(e.created);
+
+        let store = EmbeddingStore::load(&vp).expect("store present");
+        assert!(
+            store.pages.contains_key(&e.id),
+            "ensure_page upserted a vector"
+        );
+
+        api.write_page("proj", &e.id, "---\ntitle: Vector fresh\n---\nnew body")
+            .unwrap();
+        let store = EmbeddingStore::load(&vp).expect("store present");
+        assert!(
+            store.pages.contains_key(&e.id),
+            "write_page kept the vector fresh"
         );
     }
 }

@@ -99,6 +99,32 @@ impl EmbeddingStore {
     }
 }
 
+/// Best-effort single-page upsert after a write (option A: auto-embed on
+/// change). Uses the same title/id/excerpt text shape as `reindex` so
+/// vectors stay comparable. Silent no-op when: no store yet (use reindex
+/// for backfill), stored model differs from the embedder, page unknown to
+/// the registry, or embedding fails. Writes are never blocked by this.
+pub fn upsert_page(vault: &VaultPaths, registry: &Registry, embedder: &dyn Embedder, id: &str) {
+    let Some(mut store) = EmbeddingStore::load(vault) else {
+        return;
+    };
+    if store.model != embedder.model() {
+        return;
+    }
+    let Some(p) = registry.pages.get(id) else {
+        return;
+    };
+    let text = format!("{}\n{}\n{}", p.title, p.id, p.excerpt);
+    let Ok(mut vectors) = embedder.embed(&[text]) else {
+        return;
+    };
+    let Some(vector) = vectors.pop() else {
+        return;
+    };
+    store.pages.insert(id.to_string(), vector);
+    let _ = store.save(vault);
+}
+
 pub fn embeddings_path(vault: &VaultPaths) -> std::path::PathBuf {
     vault.meta().join("embeddings.json")
 }
