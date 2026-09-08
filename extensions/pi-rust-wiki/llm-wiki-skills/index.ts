@@ -4,6 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG, loadConfig, type AutopilotConfig } from "./lib/config.js";
 import { ensureWikiReady } from "./lib/bootstrap.js";
 import { buildRetroDirective, buildResearchNudge } from "./lib/messages.js";
+import { buildRecallMessage, recallForPrompt } from "./lib/inject.js";
 import { deriveWikiName } from "./lib/wikiName.js";
 
 export interface ExtensionDeps {
@@ -28,6 +29,9 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   let wikiName: string | null = null;
   let nudge: string | null = null;
   let config: AutopilotConfig = DEFAULT_CONFIG;
+  // Same-prompt dedupe: an aborted+retried turn re-fires before_agent_start
+  // with the identical prompt — inject at most once per distinct prompt.
+  let lastInjectedPrompt: string | null = null;
 
   pi.on("session_start", async (_event, ctx) => {
     settledRuns = 0;
@@ -64,9 +68,23 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
         ctx.ui.notify(`[llm-wiki] bootstrap failed: ${(err as Error).message} — continuing without it`, "warning");
       }
     }
-    if (!config.researchNudge || !nudge) return;
-    if (event.systemPrompt.includes(nudge)) return;
-    return { systemPrompt: event.systemPrompt + nudge };
+    // Per-turn recall injection (opt-in). Volatile content NEVER enters the
+    // system prompt — it rides a hidden tail message so the provider's
+    // prompt-cache prefix (system prompt + nudge footer) stays stable.
+    let recallMessage: ReturnType<typeof buildRecallMessage>;
+    if (config.autoInject && wikiName && event.prompt.trim() && event.prompt !== lastInjectedPrompt) {
+      lastInjectedPrompt = event.prompt;
+      const matches = await recallForPrompt(config.wikiMcpUrl, config.wikiMcpToken, wikiName, event.prompt);
+      recallMessage = buildRecallMessage(matches);
+    }
+
+    const result: { systemPrompt?: string; message?: NonNullable<ReturnType<typeof buildRecallMessage>> } = {};
+    if (config.researchNudge && nudge && !event.systemPrompt.includes(nudge)) {
+      result.systemPrompt = event.systemPrompt + nudge;
+    }
+    if (recallMessage) result.message = recallMessage;
+    if (!result.systemPrompt && !result.message) return;
+    return result;
   });
 
   pi.on("agent_settled", async () => {

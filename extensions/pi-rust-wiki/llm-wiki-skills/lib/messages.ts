@@ -45,9 +45,9 @@ export function buildRetroDirective(
     customType: "llm-wiki-retro",
     display,
     content: [
-      "## Crystallize (background)",
+      "## Retro (background)",
       `1. Write a compact extraction of this session's durable knowledge (2-6 items: what, type, confidence, target slug — the worker cannot see this session) to \`${extractionPath}\`.`,
-      `2. Run ONE command as a background bash task: \`LLM_WIKI_AUTOPILOT_DISABLE=1 pi -p "Read ${workerPromptPath} and follow it. Extraction file: ${extractionPath}. Crystallize skill: ${skillPath}. ${wikiScope}" > ${logPath} 2>&1 &\``,
+      `2. Run ONE command as a background bash task: \`LLM_WIKI_AUTOPILOT_DISABLE=1 pi -p "Read ${workerPromptPath} and follow it. Extraction file: ${extractionPath}. Retro skill: ${skillPath}. ${wikiScope}" > ${logPath} 2>&1 &\``,
       `3. Tell the user retro was delegated (log at \`${logPath}\`). Do nothing else — no wiki calls in this session.`,
     ].join("\n"),
   };

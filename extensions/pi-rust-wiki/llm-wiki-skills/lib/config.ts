@@ -12,6 +12,8 @@ export interface RetroConfig {
 export interface AutopilotConfig {
   bootstrap: boolean;
   researchNudge: boolean;
+  /** Per-turn recall injection: search the space on each prompt, inject strong hits as a hidden message. Default off. */
+  autoInject: boolean;
   /** Render directive text in the UI. False = agent still receives it, silently. */
   display: boolean;
   /** Wiki MCP endpoint for the mechanical bootstrap calls. */
@@ -26,6 +28,7 @@ export const DEFAULT_WIKI_MCP_URL = "http://host.containers.internal:8484/mcp";
 export const DEFAULT_CONFIG: AutopilotConfig = {
   bootstrap: true,
   researchNudge: true,
+  autoInject: false,
   display: false,
   wikiMcpUrl: DEFAULT_WIKI_MCP_URL,
   wikiMcpToken: process.env.WIKI_TOKEN ?? "",
@@ -69,6 +72,7 @@ export function loadConfig(cwd: string, globalDir: string = globalAgentDir()): L
     config: {
       bootstrap: pick("bootstrap"),
       researchNudge: pick("researchNudge"),
+      autoInject: pick("autoInject"),
       display: pick("display"),
       wikiMcpUrl: pick("wikiMcpUrl"),
       wikiMcpToken: pick("wikiMcpToken"),

@@ -30,12 +30,17 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 {
   "bootstrap": true,
   "researchNudge": true,
+  "autoInject": false,
   "display": false,
   "wikiMcpUrl": "http://host.containers.internal:8484/mcp",
   "wikiMcpToken": "",
   "retro": { "enabled": true, "everyNRuns": 8, "oncePerSession": false }
 }
 ```
+
+**`researchNudge`:** default `true` — a session-static footer in the system prompt scopes the agent to this project's wiki space and points it at the research/retro skills. Byte-identical all session (prompt-cache safe).
+
+**`autoInject`:** default `false`. When `true`, every user turn triggers a `wiki_recall` search of the project space keyed on the prompt; hits scoring ≥ 2.0 (title/id-strength matches) are injected as a hidden conversation message (`display: false`) so the agent sees relevant wiki pages without being asked. Personal-layer hits are excluded (cross-project noise), max 3 hits, identical prompts never inject twice (retry-safe). Per-turn recall content never touches the system prompt, so the provider's prompt cache stays warm.
 
 **`display`:** default `false` — directive text (retro) is delivered silently; you'll see the agent's one-line report and the background worker command. Set `true` to render directive text in the UI.
 

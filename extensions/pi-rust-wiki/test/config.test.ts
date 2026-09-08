@@ -36,6 +36,7 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       bootstrap: false,
       researchNudge: true,
+      autoInject: false,
       display: false,
       wikiMcpUrl: "http://host.containers.internal:8484/mcp",
       wikiMcpToken: process.env.WIKI_TOKEN ?? "",
@@ -69,6 +70,7 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       bootstrap: false,
       researchNudge: true,
+      autoInject: false,
       display: false,
       wikiMcpUrl: "http://host.containers.internal:8484/mcp",
       wikiMcpToken: process.env.WIKI_TOKEN ?? "",
