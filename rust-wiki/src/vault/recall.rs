@@ -224,6 +224,15 @@ pub fn recall_layered_semantic(
             }
         }
     }
+    // Merged ranking: personal-layer hits compete by score, then the list
+    // is capped. (Previously personal hits were appended after the sort and
+    // could be truncated away despite being the best match.)
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    hits.truncate(max_results as usize);
     if let Some((query_vec, store)) = semantic {
         for h in &mut hits {
             if let Some(vec) = store.pages.get(&h.id) {
@@ -381,5 +390,52 @@ mod tests {
         let (hits, links_first) = recall_layered(&v, None, &reg, "rag", 5);
         assert!(links_first);
         assert!(hits.iter().all(|h| h.preview.chars().count() <= 80));
+    }
+
+    #[test]
+    fn personal_layer_competes_by_score_and_survives_cap() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let space = VaultPaths::new(root, "proj");
+        let personal = VaultPaths::new(root, crate::vault::layout::SPACE_PERSONAL);
+        bootstrap(&space, "t").unwrap();
+        bootstrap(&personal, "t").unwrap();
+        let reg_s = crate::vault::registry::rebuild_metadata(&space).unwrap();
+
+        for t in ["Alpha topic", "Beta topic"] {
+            crate::vault::pages::ensure_page(
+                &space,
+                "concept",
+                t,
+                Some(format!("---\ntitle: {t}\ntype: concept\n---\n\ntopic notes\n").as_str()),
+                crate::vault::pages::GateMode::Off,
+            )
+            .unwrap();
+        }
+        crate::vault::pages::ensure_page(
+            &personal,
+            "concept",
+            "Commit approval",
+            Some("---\ntitle: Commit approval\ntype: concept\n---\n\ncommit approval rules preferences\ncommit approval\n"),
+            crate::vault::pages::GateMode::Off,
+        )
+        .unwrap();
+
+        let (hits, _) = recall_layered(
+            &space,
+            Some(&personal),
+            &reg_s,
+            "commit approval rules preferences",
+            2,
+        );
+        assert_eq!(
+            hits[0].layer.as_deref(),
+            Some("personal"),
+            "personal top hit must rank first: {:?}",
+            hits.iter()
+                .map(|h| (h.id.clone(), h.score))
+                .collect::<Vec<_>>()
+        );
+        assert!(hits.len() <= 2);
     }
 }
