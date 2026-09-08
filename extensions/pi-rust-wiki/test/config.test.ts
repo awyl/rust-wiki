@@ -39,7 +39,7 @@ describe("loadConfig", () => {
       autoInject: false,
       display: false,
       wikiMcpUrl: "http://host.containers.internal:8484/mcp",
-      wikiMcpToken: process.env.WIKI_TOKEN ?? "",
+      wikiMcpToken: process.env.WIKI_TOKEN ?? process.env.AIPROXY_TOKEN ?? "",
       retro: { enabled: true, everyNRuns: 3, oncePerSession: false },
     });
   });
@@ -73,7 +73,7 @@ describe("loadConfig", () => {
       autoInject: false,
       display: false,
       wikiMcpUrl: "http://host.containers.internal:8484/mcp",
-      wikiMcpToken: process.env.WIKI_TOKEN ?? "",
+      wikiMcpToken: process.env.WIKI_TOKEN ?? process.env.AIPROXY_TOKEN ?? "",
       retro: { enabled: false, everyNRuns: 2, oncePerSession: false },
     });
   });

@@ -18,7 +18,7 @@ export interface AutopilotConfig {
   display: boolean;
   /** Wiki MCP endpoint for the mechanical bootstrap calls. */
   wikiMcpUrl: string;
-  /** Bearer token for the wiki MCP endpoint (WIKI_TOKEN env; server is unauthenticated by default). */
+  /** Bearer token for the wiki MCP endpoint (WIKI_TOKEN env, falling back to AIPROXY_TOKEN for aiproxy-hosted servers; server is unauthenticated by default). */
   wikiMcpToken: string;
   retro: RetroConfig;
 }
@@ -31,7 +31,7 @@ export const DEFAULT_CONFIG: AutopilotConfig = {
   autoInject: false,
   display: false,
   wikiMcpUrl: DEFAULT_WIKI_MCP_URL,
-  wikiMcpToken: process.env.WIKI_TOKEN ?? "",
+  wikiMcpToken: process.env.WIKI_TOKEN ?? process.env.AIPROXY_TOKEN ?? "",
   retro: { enabled: true, everyNRuns: 8, oncePerSession: false },
 };
 
