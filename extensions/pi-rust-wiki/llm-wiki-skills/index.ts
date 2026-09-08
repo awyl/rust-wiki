@@ -4,12 +4,20 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG, loadConfig, type AutopilotConfig } from "./lib/config.js";
 import { ensureWikiReady } from "./lib/bootstrap.js";
 import { buildRetroDirective, buildResearchNudge } from "./lib/messages.js";
-import { buildRecallMessage, recallForPrompt } from "./lib/inject.js";
+import {
+  buildHealthHint,
+  buildRecallMessage,
+  healthForPrompt,
+  recallForPrompt,
+  type WikiStatusDTO,
+} from "./lib/inject.js";
 import { deriveWikiName } from "./lib/wikiName.js";
 
 export interface ExtensionDeps {
   /** Test seam: replaces the mechanical ensureWikiReady bootstrap call. */
   ensureWikiReadyFn?: typeof ensureWikiReady;
+  /** Test seam: replaces the wiki_status health probe. */
+  healthFn?: typeof healthForPrompt;
 }
 
 export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps = {}): void {
@@ -22,6 +30,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   const skillPath = (name: string) => join(skillsDir, name, "SKILL.md");
   const workerPromptPath = join(here, "worker-retro.md");
   const ensure = deps.ensureWikiReadyFn ?? ensureWikiReady;
+  const health = deps.healthFn ?? healthForPrompt;
 
   let settledRuns = 0;
   let retroProposed = false;
@@ -32,6 +41,9 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   // Same-prompt dedupe: an aborted+retried turn re-fires before_agent_start
   // with the identical prompt — inject at most once per distinct prompt.
   let lastInjectedPrompt: string | null = null;
+  // Health problems surface once per session up front, and again whenever
+  // retro fires (they may have accumulated since).
+  let healthChecked = false;
 
   pi.on("session_start", async (_event, ctx) => {
     settledRuns = 0;
@@ -68,14 +80,28 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
         ctx.ui.notify(`[llm-wiki] bootstrap failed: ${(err as Error).message} — continuing without it`, "warning");
       }
     }
+    // Once-per-session health probe (runs regardless of autoInject): push
+    // wiki problems into the UI instead of leaving them in pull-only tools.
+    if (!healthChecked && wikiName) {
+      healthChecked = true;
+      const status = await health(config.wikiMcpUrl, config.wikiMcpToken, wikiName);
+      const hint = status ? buildHealthHint(status) : undefined;
+      if (hint) ctx.ui.notify(`[rust-wiki] ${hint}`, "warning");
+    }
+
     // Per-turn recall injection (opt-in). Volatile content NEVER enters the
     // system prompt — it rides a hidden tail message so the provider's
     // prompt-cache prefix (system prompt + nudge footer) stays stable.
     let recallMessage: ReturnType<typeof buildRecallMessage>;
     if (config.autoInject && wikiName && event.prompt.trim() && event.prompt !== lastInjectedPrompt) {
       lastInjectedPrompt = event.prompt;
-      const matches = await recallForPrompt(config.wikiMcpUrl, config.wikiMcpToken, wikiName, event.prompt);
+      const [matches, status] = await Promise.all([
+        recallForPrompt(config.wikiMcpUrl, config.wikiMcpToken, wikiName, event.prompt),
+        health(config.wikiMcpUrl, config.wikiMcpToken, wikiName) as Promise<WikiStatusDTO | null>,
+      ]);
       recallMessage = buildRecallMessage(matches);
+      const hint = status ? buildHealthHint(status) : undefined;
+      if (recallMessage && hint) recallMessage.content += `\n\n${hint}`;
     }
 
     const result: { systemPrompt?: string; message?: NonNullable<ReturnType<typeof buildRecallMessage>> } = {};
@@ -87,7 +113,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     return result;
   });
 
-  pi.on("agent_settled", async () => {
+  pi.on("agent_settled", async (_event, ctx) => {
     const { retro } = config;
     if (!retro.enabled) return;
     if (retro.oncePerSession && retroProposed) return;
@@ -97,6 +123,12 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     // `oncePerSession` pins it to the first fire only.
     settledRuns = 0;
     retroProposed = true;
+    // D: re-surface accumulated problems at retro time.
+    if (wikiName) {
+      const status = await health(config.wikiMcpUrl, config.wikiMcpToken, wikiName);
+      const hint = status ? buildHealthHint(status) : undefined;
+      if (hint) ctx.ui.notify(`[rust-wiki] ${hint}`, "warning");
+    }
     await pi.sendMessage(
       buildRetroDirective(skillPath("retro"), workerPromptPath, wikiName, config.display),
       // followUp + triggerTurn: if the agent is idle, start a run immediately

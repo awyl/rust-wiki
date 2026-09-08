@@ -42,6 +42,8 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 
 **`autoInject`:** default `false`. When `true`, every user turn triggers a `wiki_recall` search of the project space keyed on the prompt; hits scoring ≥ 2.0 (title/id-strength matches) are injected as a hidden conversation message (`display: false`) so the agent sees relevant wiki pages without being asked. Personal-layer hits are excluded (cross-project noise), max 3 hits, identical prompts never inject twice (retry-safe). Per-turn recall content never touches the system prompt, so the provider's prompt cache stays warm.
 
+**Wiki health surfacing:** problems are pushed, not pull-only. Once per session the extension probes `wiki_status` for the project space; if health is degraded (orphans, gaps) you get a warning notice with counts. The probe re-runs each time retro auto-fires, and (with `autoInject`) a one-line health hint rides the injected recall message. Healthy/empty spaces stay silent.
+
 **`display`:** default `false` — directive text (retro) is delivered silently; you'll see the agent's one-line report and the background worker command. Set `true` to render directive text in the UI.
 
 **`wikiMcpUrl`:** the MCP endpoint the extension calls directly for the mechanical bootstrap (`wiki_use_space` / `wiki_bootstrap`). Default `http://host.containers.internal:8484/mcp` — the local rust-wiki server. Set it to wherever your rust-wiki binary listens.

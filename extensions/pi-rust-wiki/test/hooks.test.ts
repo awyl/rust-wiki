@@ -197,3 +197,46 @@ describe("worker file", () => {
     expect(file).toContain("intercom");
   });
 });
+
+describe("health hints (C+D)", () => {
+  const warn = { space: "s", health: "warning", total_pages: 6, orphans: 3, gaps: 0 };
+  const good = { space: "s", health: "good", total_pages: 6, orphans: 0, gaps: 0 };
+
+  it("surfaces problems once per session; silent when healthy", async () => {
+    const calls: string[] = [];
+    const healthFn = async (_u: string, _t: string, space: string) => {
+      calls.push(space);
+      return warn;
+    };
+    const { handlers } = await loadExtension({ ensureWikiReadyFn: async () => ({ space: "ok", index: "ok", detail: "d" }), healthFn });
+    const ctx = fakeCtx("/work");
+    await handlers.get("session_start")!({}, ctx);
+    await handlers.get("before_agent_start")!({ prompt: "a", systemPrompt: "BASE" }, ctx);
+    await handlers.get("before_agent_start")!({ prompt: "b", systemPrompt: "BASE" }, ctx);
+    expect(calls).toHaveLength(1); // once per session
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("3 orphans"), "warning");
+  });
+
+  it("re-checks when retro auto-fires", async () => {
+    let n = 0;
+    const healthFn = async () => {
+      n += 1;
+      return n === 1 ? good : warn;
+    };
+    const { handlers, sent } = await loadExtension({
+      ensureWikiReadyFn: async () => ({ space: "ok", index: "ok", detail: "d" }),
+      healthFn,
+    });
+    const ctx = fakeCtx("/work");
+    await handlers.get("session_start")!({}, ctx);
+    for (let i = 0; i < 7; i++) {
+      await handlers.get("before_agent_start")!({ prompt: `p${i}`, systemPrompt: "BASE" }, ctx);
+      await handlers.get("agent_settled")!({}, ctx);
+    }
+    expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("orphans"), "warning"); // healthy so far
+    await handlers.get("before_agent_start")!({ prompt: "p7", systemPrompt: "BASE" }, ctx);
+    await handlers.get("agent_settled")!({}, ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("orphans"), "warning"); // retro re-check warned
+    expect(sent).toHaveLength(1); // retro fired once
+  });
+});

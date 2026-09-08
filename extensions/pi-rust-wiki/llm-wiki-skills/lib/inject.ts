@@ -83,3 +83,40 @@ export async function recallForPrompt(
     return [];
   }
 }
+
+// ---------- health hints (zosmaai-style problem surfacing) ----------
+
+export interface WikiStatusDTO {
+  space: string;
+  health: "empty" | "good" | "warning";
+  total_pages: number;
+  orphans: number;
+  gaps: number;
+}
+
+/**
+ * One-line hint for a space with problems. Undefined when healthy —
+ * successes stay silent; only problems surface.
+ */
+export function buildHealthHint(status: WikiStatusDTO): string | undefined {
+  if (status.health === "good" || status.health === "empty") return undefined;
+  return `⚠ wiki health: ${status.orphans} orphans, ${status.gaps} gaps — run wiki_lint for details`;
+}
+
+/**
+ * Space health via the direct MCP client. Any failure resolves to null —
+ * health hints must never break or delay the turn they decorate.
+ */
+export async function healthForPrompt(
+  url: string,
+  token: string,
+  space: string,
+): Promise<WikiStatusDTO | null> {
+  try {
+    const { callTool } = await import("./mcpClient.js");
+    const raw = await callTool("wiki_status", { space }, { url, token });
+    return JSON.parse(raw) as WikiStatusDTO;
+  } catch {
+    return null;
+  }
+}

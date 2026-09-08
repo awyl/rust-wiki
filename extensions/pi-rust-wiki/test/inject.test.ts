@@ -38,3 +38,22 @@ describe("buildRecallBlock", () => {
     expect(buildRecallMessage([])).toBeUndefined();
   });
 });
+
+import { buildHealthHint, healthForPrompt } from "../llm-wiki-skills/lib/inject.js";
+
+describe("buildHealthHint", () => {
+  it("silent when healthy or empty", () => {
+    expect(buildHealthHint({ space: "s", health: "good", total_pages: 5, orphans: 0, gaps: 0 })).toBeUndefined();
+    expect(buildHealthHint({ space: "s", health: "empty", total_pages: 0, orphans: 0, gaps: 0 })).toBeUndefined();
+  });
+
+  it("one line with counts when warning", () => {
+    const hint = buildHealthHint({ space: "s", health: "warning", total_pages: 6, orphans: 6, gaps: 1 })!;
+    expect(hint).toContain("⚠ wiki health: 6 orphans, 1 gaps");
+    expect(hint).toContain("wiki_lint");
+  });
+
+  it("healthForPrompt resolves null on unreachable server", async () => {
+    expect(await healthForPrompt("http://127.0.0.1:1/mcp", "", "s")).toBeNull();
+  });
+});
