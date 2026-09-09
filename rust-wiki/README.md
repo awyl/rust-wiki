@@ -26,26 +26,19 @@ across containers and machines.
 
 ## Configuration
 
-Precedence: **environment → `<exe_dir>/config.toml` → defaults**.
+One labeled key per knob, single precedence per key: **environment → `<exe_dir>/config.toml` → default**. Every key is settable in the file; env overrides per key. Copy `config.toml.example` next to the binary to start.
 
 | Setting | Env | config.toml | Default |
 |---|---|---|---|
 | Vault root | `WIKI_VAULT_ROOT` | `vault_root` | `<exe_dir>/vaults` |
 | Port (HTTP mode) | `WIKI_PORT` | `port` | `8484` |
-| Maintenance interval | `WIKI_CRON_INTERVAL_SECS` | — | `3600` (hourly) |
-| Embedding endpoint | `WIKI_EMBEDDING_URL` | — | unset (feature off) |
-| Embedding model | `WIKI_EMBEDDING_MODEL` | — | `text-embedding-3-small` |
-| Embedding bearer token | `WIKI_EMBEDDING_TOKEN` | — | unset |
-| Recall links-first threshold | `WIKI_RECALL_LINKS_FIRST_THRESHOLD` | — | `50` (0 = always links-first) |
-| Git commit interval | `WIKI_GIT_INTERVAL_SECS` | — | `60` (0 = disabled) |
-| Git idle threshold | `WIKI_GIT_IDLE_SECS` | — | `300` |
-
-Example `config.toml` (must sit next to the binary):
-
-```toml
-port = 8484
-vault_root = "/var/lib/rust-wiki/vaults"
-```
+| Maintenance interval (secs, 0 = off) | `WIKI_CRON_INTERVAL_SECS` | `cron_interval_secs` | `3600` (hourly) |
+| Embedding endpoint | `WIKI_EMBEDDING_URL` | `embedding_url` | unset (feature off) |
+| Embedding model | `WIKI_EMBEDDING_MODEL` | `embedding_model` | `text-embedding-3-small` |
+| Embedding bearer token | `WIKI_EMBEDDING_TOKEN` | `embedding_token` | unset |
+| Recall links-first threshold | `WIKI_RECALL_LINKS_FIRST_THRESHOLD` | `recall_links_first_threshold` | `50` (0 = always links-first) |
+| Git commit interval (secs, 0 = off) | `WIKI_GIT_INTERVAL_SECS` | `git_interval_secs` | `60` |
+| Git idle threshold (secs) | `WIKI_GIT_IDLE_SECS` | `git_idle_secs` | `300` |
 
 ### Vault root
 

@@ -12,19 +12,13 @@ use std::time::{Duration, SystemTime};
 pub const DEFAULT_TICK_SECS: u64 = 60;
 pub const DEFAULT_IDLE_SECS: u64 = 300;
 
-/// Tick interval from env; 0 disables git backing.
+/// Tick interval from central config; 0 disables git backing.
 pub fn tick_secs_from_env() -> u64 {
-    std::env::var("WIKI_GIT_INTERVAL_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_TICK_SECS)
+    crate::config::get().git_interval_secs
 }
 
 pub fn idle_secs_from_env() -> u64 {
-    std::env::var("WIKI_GIT_IDLE_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_IDLE_SECS)
+    crate::config::get().git_idle_secs
 }
 
 const GITIGNORE: &str = "meta/embeddings.json\n.obsidian/workspace*\n*.tmp\n";

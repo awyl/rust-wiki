@@ -8,40 +8,15 @@
 
 use rust_wiki::hub::{default_root, Hub};
 
-#[derive(Debug, serde::Deserialize, Default)]
-struct FileConfig {
-    port: Option<u16>,
-    vault_root: Option<String>,
-}
-
 fn vault_root() -> std::path::PathBuf {
-    match std::env::var("WIKI_VAULT_ROOT") {
-        Ok(env) => std::path::PathBuf::from(env),
-        Err(_) => load_file_config()
-            .and_then(|c| c.vault_root)
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(default_root),
-    }
-}
-
-fn load_file_config() -> Option<FileConfig> {
-    let raw = exe_dir().and_then(|d| std::fs::read_to_string(d.join("config.toml")).ok())?;
-    toml::from_str(&raw).ok()
+    rust_wiki::config::get()
+        .vault_root
+        .clone()
+        .unwrap_or_else(default_root)
 }
 
 fn port() -> u16 {
-    if let Ok(p) = std::env::var("WIKI_PORT") {
-        if let Ok(n) = p.parse() {
-            return n;
-        }
-    }
-    load_file_config().and_then(|c| c.port).unwrap_or(8484)
-}
-
-fn exe_dir() -> Option<std::path::PathBuf> {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    rust_wiki::config::get().port
 }
 
 fn main() -> anyhow::Result<()> {
