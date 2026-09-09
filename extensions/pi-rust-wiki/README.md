@@ -67,7 +67,7 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 
 ## Vendored skills
 
-Two adapted skills targeting rust-wiki tools: `research` (recall/search/read + synthesize) and `retro` (record session insights). The old geronimo skill suite was removed at the cutover.
+Two adapted skills targeting rust-wiki tools: `research` (recall/search/read + synthesize) and `retro` (record session insights). The old upstream skill suite was removed at the cutover.
 
 ## Development
 
