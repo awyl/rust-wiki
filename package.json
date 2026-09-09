@@ -4,6 +4,7 @@
   "description": "Monorepo: rust-wiki MCP server + pi-rust-wiki extension",
   "pi": {
     "extensions": ["./extensions/pi-rust-wiki/llm-wiki-skills"],
-    "skills": ["./extensions/pi-rust-wiki/skills"]
+    "skills": ["./extensions/pi-rust-wiki/skills"],
+    "prompts": ["./extensions/pi-rust-wiki/prompts"]
   }
 }
