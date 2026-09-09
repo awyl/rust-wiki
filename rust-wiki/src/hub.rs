@@ -265,6 +265,7 @@ impl WikiApi for Hub {
         let gate = Self::gate_mode(&v);
         let (id, created) = vp::ensure_page(&v, page_type, title, content, gate)
             .map_err(|e| ApiError::new("invalid_argument", e))?;
+        let _ = registry::rebuild_metadata(&v); // registry must reflect the create/update
         if created {
             self.embed_page(&v, &id);
         }
@@ -284,6 +285,7 @@ impl WikiApi for Hub {
         let v = self.target(Some(space), Some(space))?;
         let gate = Self::gate_mode(&v);
         vp::write_page(&v, id, content, gate).map_err(|e| ApiError::new("invalid_argument", e))?;
+        let _ = registry::rebuild_metadata(&v); // registry must reflect the write
         self.embed_page(&v, id);
         Ok(WritePageOut {
             id: id.to_string(),
