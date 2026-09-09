@@ -544,6 +544,27 @@ mod tests {
     }
 
     #[test]
+    fn template_roundtrip_via_hub() {
+        let h = hub();
+        let api: &dyn WikiApi = &h;
+        api.bootstrap("proj", None).unwrap();
+        let t = api.template("proj", "concept").unwrap();
+        assert_eq!(t.page_type, "concept");
+        assert!(t.content.starts_with("---\ntype: concept"));
+        assert!(t.content.contains("{title}"));
+        // scaffold an actual page from the template: registry accepts it
+        let filled = t.content.replace("{title}", "Templated Probe");
+        let e = api
+            .ensure_page("proj", "concept", "Templated Probe", Some(&filled))
+            .unwrap();
+        assert!(e.created);
+        let st = api.status("proj").unwrap();
+        assert_eq!(st.total_pages, 1);
+        // unknown type rejected
+        assert!(api.template("proj", "nope").is_err());
+    }
+
+    #[test]
     fn end_to_end_via_trait_object() {
         let h = hub();
         let api: &dyn WikiApi = &h;
