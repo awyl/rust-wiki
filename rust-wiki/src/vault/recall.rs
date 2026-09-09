@@ -10,7 +10,13 @@ use super::registry::{rebuild_metadata, Registry};
 /// Chunk size for body scanning (~ chars).
 const CHUNK: usize = 600;
 /// Pages above this count => links-first (no full previews).
-pub const LINKS_FIRST_THRESHOLD: u64 = 50;
+/// Configurable via `WIKI_RECALL_LINKS_FIRST_THRESHOLD` (0 = always links-first).
+pub fn links_first_threshold() -> u64 {
+    std::env::var("WIKI_RECALL_LINKS_FIRST_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50)
+}
 /// Field weights (KISS: title/id dominate, type assists).
 const W_TITLE: f64 = 3.0;
 const W_ID: f64 = 2.0;
@@ -249,7 +255,7 @@ pub fn recall_layered_semantic(
         });
     }
     // links-first: previews trimmed when vault is big
-    let links_first = registry.pages.len() as u64 > LINKS_FIRST_THRESHOLD;
+    let links_first = registry.pages.len() as u64 > links_first_threshold();
     if links_first {
         for h in &mut hits {
             h.preview = h.preview.chars().take(80).collect();

@@ -36,6 +36,9 @@ Precedence: **environment → `<exe_dir>/config.toml` → defaults**.
 | Embedding endpoint | `WIKI_EMBEDDING_URL` | — | unset (feature off) |
 | Embedding model | `WIKI_EMBEDDING_MODEL` | — | `text-embedding-3-small` |
 | Embedding bearer token | `WIKI_EMBEDDING_TOKEN` | — | unset |
+| Recall links-first threshold | `WIKI_RECALL_LINKS_FIRST_THRESHOLD` | — | `50` (0 = always links-first) |
+| Git commit interval | `WIKI_GIT_INTERVAL_SECS` | — | `60` (0 = disabled) |
+| Git idle threshold | `WIKI_GIT_IDLE_SECS` | — | `300` |
 
 Example `config.toml` (must sit next to the binary):
 
