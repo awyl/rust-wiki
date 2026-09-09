@@ -67,7 +67,11 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 
 ## Vendored skills
 
-Two adapted skills targeting rust-wiki tools: `research` (recall/search/read + synthesize) and `retro` (record session insights). The old upstream skill suite was removed at the cutover.
+Brain vendored from `zosmaai/pi-llm-wiki`, retargeted to remote storage — see `docs/COVERAGE.md` for the section-for-section map:
+
+- `skills/llm-wiki/SKILL.md` — canonical brain (all workflows, page conventions). `templates/` mirrors the server templates (reference only; `wiki_template` is authoritative).
+- `skills/research`, `skills/retro` — thin autopilot entry points (hook compatibility).
+- `prompts/` — 9 ported command prompts (query, ingest, lint, status, init, retro, discover, digest, run). Parked upstream: record, skills, req.
 
 ## Development
 
