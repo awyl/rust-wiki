@@ -71,7 +71,7 @@ Brain vendored from `zosmaai/pi-llm-wiki`, retargeted to remote storage — see 
 
 - `skills/llm-wiki/SKILL.md` — canonical brain (all workflows, page conventions). `templates/` mirrors the server templates (reference only; `wiki_template` is authoritative).
 - `skills/research`, `skills/retro` — thin autopilot entry points (hook compatibility).
-- `prompts/` — 9 ported command prompts (query, ingest, lint, status, init, retro, discover, digest, run). Parked upstream: record, skills, req.
+- `prompts/` — 11 ported command prompts (query, ingest, lint, status, init, retro, discover, digest, run, req, record, skills). Nothing parked except host screens.
 
 ## Development
 

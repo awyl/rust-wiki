@@ -36,7 +36,7 @@ describe("vendored skills", () => {
 
   it("canonical templates mirror the server", () => {
     const tplDir = `${SKILLS_DIR}/llm-wiki/templates/pages`;
-    for (const name of ["concept", "entity", "source", "analysis", "synthesis"]) {
+    for (const name of ["concept", "entity", "source", "analysis", "synthesis", "requirement", "skill", "case"]) {
       const md = readFileSync(`${tplDir}/${name}.md`, "utf-8");
       expect(md).toMatch(/^---\ntype: /m);
       expect(md).toContain("{title}");
@@ -45,11 +45,12 @@ describe("vendored skills", () => {
 
   it("prompts cover the ported command set", () => {
     const promptsDir = fileURLToPath(new URL("../prompts", import.meta.url));
-    for (const name of ["wiki-query", "wiki-ingest", "wiki-lint", "wiki-status", "wiki-init", "wiki-retro", "wiki-discover", "wiki-digest", "wiki-run"]) {
+    for (const name of ["wiki-query", "wiki-ingest", "wiki-lint", "wiki-status", "wiki-init", "wiki-retro", "wiki-discover", "wiki-digest", "wiki-run", "wiki-req", "wiki-record", "wiki-skills"]) {
       expect(existsSync(`${promptsDir}/${name}.md`)).toBe(true);
     }
-    for (const name of ["wiki-record", "wiki-skills", "wiki-req"]) {
-      expect(existsSync(`${promptsDir}/${name}.md`)).toBe(false);
+    for (const dir of ["llm-wiki", "retro", "research"]) {
+      const md = readFileSync(`${SKILLS_DIR}/${dir}/SKILL.md`, "utf-8");
+      expect(md).not.toContain("trajectories parked");
     }
   });
 });

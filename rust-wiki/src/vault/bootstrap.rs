@@ -42,7 +42,7 @@ entry point.
 Layout:
 
 - `wiki/` — editable knowledge pages (`concepts/`, `entities/`,
-  `syntheses/`, `analyses/`, `sources/`). `wiki/index.md`, directory
+  `syntheses/`, `analyses/`, `sources/`, `requirements/`). `wiki/index.md`, directory
   `index.md` files, and `wiki/log.md` are generated — do not edit.
 - `raw/` — immutable captured sources. Do not edit.
 - `meta/` — server-owned registry and event stream. Do not edit.
@@ -73,6 +73,18 @@ const TEMPLATES: &[(&str, &str)] = &[
         "synthesis",
         "---\ntype: synthesis\ntitle: \"{title}\"\nstatus: active\ntopic: \"\"\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\nsources: []\nsources_count: 0\n---\n\n# {title}\n\n## Question\n\n\n## Analysis\n\n\n## Key Insights\n\n\n## Conclusion\n\n\n## Sources Used\n\n\n## Related Pages\n\n",
     ),
+    (
+        "skill",
+        "---\ntype: skill\ntitle: \"{title}\"\nstatus: active\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\ntrajectories: []\n---\n\n# {title}\n\n## When to Use\n\n\n## Steps\n\n\n## Pitfalls\n\n",
+    ),
+    (
+        "case",
+        "---\ntype: case\ntitle: \"{title}\"\nstatus: active\ntrajectory_id: \noutcome: success\ncreated: {date}\nupdated: {date}\n---\n\n# {title}\n\n## Task\n\n\n## Approach\n\n\n## Outcome\n\n",
+    ),
+    (
+        "requirement",
+        "---\ntype: requirement\ntitle: \"{title}\"\nstatus: draft\npriority: p2\ncreated: {date}\nupdated: {date}\nsource_id: \ndepends_on: []\n---\n\n# {title}\n\n## Description\n\n\n## Acceptance Criteria\n\n- [ ] \n\n## Links\n\n",
+    ),
 ];
 
 /// Create the vault at `vault` if missing. Existing files are never overwritten.
@@ -86,11 +98,15 @@ pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, B
     let dirs = [
         vault.templates(),
         vault.raw_sources(),
+        vault.raw_trajectories(),
         vault.wiki_pages().join("sources"),
         vault.wiki_pages().join("entities"),
         vault.wiki_pages().join("concepts"),
         vault.wiki_pages().join("syntheses"),
         vault.wiki_pages().join("analyses"),
+        vault.wiki_pages().join("requirements"),
+        vault.wiki_pages().join("skills"),
+        vault.wiki_pages().join("cases"),
         vault.meta(),
         vault.outputs(),
         vault.discoveries(),

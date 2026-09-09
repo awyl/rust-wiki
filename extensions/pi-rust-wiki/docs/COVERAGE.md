@@ -39,7 +39,7 @@ Every upstream section mapped to its current home. Status: **verbatim** (copied,
 | `read raw/.../extracted.md` | batch `extracted` text inline | no local files |
 | `wiki_schema` scaffold | `wiki_template(type)` | server-authoritative templates |
 | `wiki_graph`, `wiki_suggest` | — | no graph engine; recall + lint cover |
-| trajectory trio | — | parked |
+| trajectory trio | caller-supplied steps + summary | server never sees live session |
 | — | personal-layer tools, `wiki_observe`, `wiki_reindex_embeddings` | our additions |
 
 ## prompts/ ← upstream prompts/ (== commands/, identical)
@@ -49,8 +49,8 @@ Every upstream section mapped to its current home. Status: **verbatim** (copied,
 | wiki-query, wiki-ingest, wiki-lint, wiki-status, wiki-init, wiki-retro, wiki-discover | adapted (space param, remote reads, auto-rebuild) |
 | wiki-digest | adapted (log via `wiki_read_page(id="log")`, in-chat report — no outputs/ writes) |
 | wiki-run | adapted (`wiki_watch(run=true)` instead of crontab print) |
-| wiki-record, wiki-skills | dropped (trajectories parked) |
-| wiki-req | dropped (needs `requirement` page type — scoped follow-up) |
+| wiki-record, wiki-skills | adapted (caller-supplied steps — server never sees live session) |
+| wiki-req | adapted (`requirement` type: `wiki/requirements/`, status lifecycle, priorities) |
 
 ## skills/research, skills/retro
 

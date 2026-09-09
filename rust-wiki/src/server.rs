@@ -109,11 +109,11 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
             "mark_ingested": {"type": "array", "items": {"type": "string"}}
         }
     })),
-    ("wiki_ensure_page", "Create an entity/concept/synthesis/analysis page (no overwrite).", json!({
+    ("wiki_ensure_page", "Create an entity/concept/synthesis/analysis/requirement page (no overwrite).", json!({
         "type": "object",
         "properties": {
             "space": {"type": "string"},
-            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis"]},
+            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis", "requirement"]},
             "title": {"type": "string"},
             "content": {"type": "string"}
         },
@@ -123,7 +123,7 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "type": "object",
         "properties": {
             "space": {"type": "string"},
-            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis", "source"]}
+            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis", "requirement", "source"]}
         },
         "required": ["type"]
     })),
@@ -142,14 +142,42 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "properties": {"id": {"type": "string"}, "content": {"type": "string"}},
         "required": ["id", "content"]
     })),
-    ("wiki_ensure_personal_page", "Create an entity/concept/synthesis/analysis page in the PERSONAL/root layer (no overwrite). No space switch needed.", json!({
+    ("wiki_ensure_personal_page", "Create an entity/concept/synthesis/analysis/requirement page in the PERSONAL/root layer (no overwrite). No space switch needed.", json!({
         "type": "object",
         "properties": {
-            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis"]},
+            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis", "requirement"]},
             "title": {"type": "string"},
             "content": {"type": "string"}
         },
         "required": ["type", "title"]
+    })),
+    ("wiki_capture_trajectory", "Capture a completed task's tool-call record + summary as an immutable trajectory packet plus a skeleton case page. Steps are caller-supplied.", json!({
+        "type": "object",
+        "properties": {
+            "space": {"type": "string"},
+            "title": {"type": "string"},
+            "outcome": {"type": "string", "enum": ["success", "failure", "partial"]},
+            "steps": {"type": "array"},
+            "summary": {"type": "string"}
+        },
+        "required": ["title", "steps", "summary"]
+    })),
+    ("wiki_distill_skills", "List undistilled trajectories for skill synthesis. Pass mark_distilled after generalizing a packet into a skill page.", json!({
+        "type": "object",
+        "properties": {
+            "space": {"type": "string"},
+            "mark_distilled": {"type": "array", "items": {"type": "string"}}
+        }
+    })),
+    ("wiki_recall_skill", "Layered recall filtered to distilled skill/case pages — have I done this before?", json!({
+        "type": "object",
+        "properties": {
+            "space": {"type": "string"},
+            "query": {"type": "string"},
+            "kind": {"type": "string", "enum": ["skill", "case", "any"]},
+            "max_results": {"type": "number"}
+        },
+        "required": ["query"]
     })),
     ("wiki_recall", "Layered relevance search (active space + personal layer) for task context.", json!({
         "type": "object",
@@ -355,6 +383,32 @@ fn dispatch(
         "wiki_template" => Ok(serde_json::to_value(
             hub.template(need_space!(), args["type"].as_str().unwrap_or(""))?,
         )?),
+        "wiki_capture_trajectory" => Ok(serde_json::to_value(hub.capture_trajectory(
+            need_space!(),
+            args["title"].as_str().unwrap_or(""),
+            args["outcome"].as_str(),
+            &args["steps"].clone(),
+            args["summary"].as_str().unwrap_or(""),
+        )?)?),
+        "wiki_distill_skills" => {
+            let marks: Vec<String> = args["mark_distilled"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            Ok(serde_json::to_value(
+                hub.distill_skills(need_space!(), &marks)?,
+            )?)
+        }
+        "wiki_recall_skill" => Ok(serde_json::to_value(hub.recall_skill(
+            need_space!(),
+            args["query"].as_str().unwrap_or(""),
+            args["kind"].as_str(),
+            args["max_results"].as_u64().map(|n| n as u32),
+        )?)?),
         "wiki_write_page" => Ok(serde_json::to_value(hub.write_page(
             need_space!(),
             args["id"].as_str().unwrap_or(""),

@@ -181,6 +181,25 @@ pub struct LogEventOut {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct CaptureTrajectoryOut {
+    pub trajectory_id: String,
+    pub case_page_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct DistillItem {
+    pub trajectory_id: String,
+    pub title: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct DistillOut {
+    pub batch: Vec<DistillItem>,
+    pub all_distilled: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct ReembedOut {
     pub embedded: u64,
     pub provider_configured: bool,
@@ -250,4 +269,24 @@ pub trait WikiApi: Send + Sync {
         details: &serde_json::Value,
     ) -> ApiResult<LogEventOut>;
     fn reembed(&self, space: &str) -> ApiResult<ReembedOut>;
+    /// Capture a completed task's tool-call record + summary as an immutable
+    /// trajectory packet plus a skeleton case page. Steps are caller-supplied.
+    fn capture_trajectory(
+        &self,
+        space: &str,
+        title: &str,
+        outcome: Option<&str>,
+        steps: &serde_json::Value,
+        summary: &str,
+    ) -> ApiResult<CaptureTrajectoryOut>;
+    /// List undistilled trajectories; `mark_distilled` flips packets distilled.
+    fn distill_skills(&self, space: &str, mark_distilled: &[String]) -> ApiResult<DistillOut>;
+    /// Layered recall filtered to skill/case pages (`kind`: skill|case|any).
+    fn recall_skill(
+        &self,
+        space: &str,
+        query: &str,
+        kind: Option<&str>,
+        max_results: Option<u32>,
+    ) -> ApiResult<RecallOut>;
 }

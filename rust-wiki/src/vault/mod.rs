@@ -9,6 +9,7 @@ pub mod pages;
 pub mod recall;
 pub mod registry;
 pub mod status;
+pub mod trajectory;
 
 pub use bootstrap::{bootstrap, BootstrapError};
 pub use layout::{VaultPaths, SPACE_PERSONAL};

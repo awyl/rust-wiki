@@ -12,6 +12,9 @@ pub const PAGE_TYPES: &[(&str, &str)] = &[
     ("concept", "concepts"),
     ("synthesis", "syntheses"),
     ("analysis", "analyses"),
+    ("requirement", "requirements"),
+    ("skill", "skills"),
+    ("case", "cases"),
 ];
 
 pub fn folder_for(page_type: &str) -> Option<&'static str> {
@@ -108,7 +111,7 @@ pub fn template(vault: &VaultPaths, page_type: &str) -> Result<String, String> {
     // (skeleton pages from capture); source *pages* are system-written.
     if folder_for(page_type).is_none() && page_type != "source" {
         return Err(format!(
-            "unknown page type '{page_type}' — expected one of: entity, concept, synthesis, analysis, source"
+            "unknown page type '{page_type}' — expected one of: entity, concept, synthesis, analysis, requirement, source"
         ));
     }
     let path = vault.templates().join(format!("{page_type}.md"));
@@ -127,7 +130,7 @@ pub fn ensure_page(
     gate: GateMode,
 ) -> Result<(String, bool), String> {
     let Some(folder) = folder_for(page_type) else {
-        return Err(format!("unknown page type '{page_type}' — expected one of: entity, concept, synthesis, analysis"));
+        return Err(format!("unknown page type '{page_type}' — expected one of: entity, concept, synthesis, analysis, requirement"));
     };
     let slug = slugify(title);
     if !valid_slug(&slug) {
@@ -377,16 +380,27 @@ mod tests {
         // Every bootstrap template must survive the fail-closed frontmatter
         // scan: created pages enter the registry with zero diagnostics.
         let (_t, v) = setup();
-        for t in ["concept", "entity", "source", "analysis", "synthesis"] {
+        for t in [
+            "concept",
+            "entity",
+            "source",
+            "analysis",
+            "synthesis",
+            "requirement",
+        ] {
             let scaffold = template(&v, t).unwrap().replace("{title}", "Probe");
-            let folder = if t == "source" { "sources" } else { "concepts" };
+            let folder = match t {
+                "source" => "sources",
+                "requirement" => "requirements",
+                _ => "concepts",
+            };
             let path = v.wiki_pages().join(format!("{folder}/probe-{t}.md"));
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &scaffold).unwrap();
         }
         let reg = super::super::registry::rebuild_metadata(&v).unwrap();
         assert!(reg.diagnostics.is_empty(), "{:?}", reg.diagnostics);
-        assert_eq!(reg.pages.len(), 5);
+        assert_eq!(reg.pages.len(), 6);
     }
 
     #[test]

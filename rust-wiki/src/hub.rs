@@ -9,7 +9,7 @@ use crate::api::*;
 use crate::vault::{
     bootstrap as vb, capture as vc, ingest as vi,
     layout::{VaultPaths, SPACE_PERSONAL},
-    lint as vl, pages as vp, recall as vr, registry, status as vs,
+    lint as vl, pages as vp, recall as vr, registry, status as vs, trajectory as vt,
 };
 
 /// Seam: fetch a URL and convert to markdown. Production impl uses
@@ -488,6 +488,70 @@ impl WikiApi for Hub {
                 Ok(ReembedOut { embedded: n as u64, provider_configured: true, message: format!("embedded {n} pages with {}", embedder.model()) })
             }
         }
+    }
+
+    fn capture_trajectory(
+        &self,
+        space: &str,
+        title: &str,
+        outcome: Option<&str>,
+        steps: &serde_json::Value,
+        summary: &str,
+    ) -> ApiResult<CaptureTrajectoryOut> {
+        let v = self.target(Some(space), Some(space))?;
+        let c = vt::capture_trajectory(
+            &v,
+            &self.today(),
+            &self.now_iso(),
+            title,
+            outcome.unwrap_or("success"),
+            steps,
+            summary,
+        )
+        .map_err(ApiError::invalid)?;
+        Ok(CaptureTrajectoryOut {
+            trajectory_id: c.trajectory_id,
+            case_page_id: c.case_page_id,
+        })
+    }
+
+    fn distill_skills(&self, space: &str, mark_distilled: &[String]) -> ApiResult<DistillOut> {
+        let v = self.target(Some(space), Some(space))?;
+        let batch = vt::distill(&v, mark_distilled).map_err(ApiError::invalid)?;
+        let all_distilled = batch.is_empty();
+        Ok(DistillOut {
+            batch: batch
+                .into_iter()
+                .map(|u| DistillItem {
+                    trajectory_id: u.trajectory_id,
+                    title: u.title,
+                    summary: u.summary,
+                })
+                .collect(),
+            all_distilled,
+        })
+    }
+
+    fn recall_skill(
+        &self,
+        space: &str,
+        query: &str,
+        kind: Option<&str>,
+        max_results: Option<u32>,
+    ) -> ApiResult<RecallOut> {
+        let kinds: Vec<&str> = match kind {
+            Some("skill") => vec!["skill"],
+            Some("case") => vec!["case"],
+            _ => vec!["skill", "case"],
+        };
+        let max = max_results.unwrap_or(5).max(1);
+        // over-fetch then filter: skill/case pages are few, recall is in-process
+        let mut out = self.recall(space, query, Some(max.saturating_mul(5).min(50)))?;
+        out.matches
+            .retain(|m| kinds.contains(&m.page_type.as_str()));
+        out.matches.truncate(max as usize);
+        out.query = query.to_string();
+        Ok(out)
     }
 }
 

@@ -115,6 +115,7 @@ wiki_search(query="broad topic")
 - `wiki_write_page` — Guarded update (requires frontmatter fence) `[remote]`
 - `wiki_ensure_personal_page` / `wiki_write_personal_page` — Personal-layer writes, no switch `[remote]`
 - `wiki_recall` — Layered relevance search (space + personal)
+- `wiki_capture_trajectory` / `wiki_distill_skills` / `wiki_recall_skill` — Working-memory trio (packets, distillation, skill recall)
 - `wiki_search` — Registry keyword search (space only)
 - `wiki_retro` — Save an atomic insight
 - `wiki_observe` — Timestamped mid-session observation `[remote]`
@@ -167,7 +168,7 @@ Scaffold from `wiki_template(type)` — never from frozen copies. Shape:
 
 ```yaml
 ---
-type: entity | concept | source | synthesis | analysis
+type: entity | concept | source | synthesis | analysis | requirement | skill | case
 title: "Human-readable title"
 status: active | deprecated
 created: YYYY-MM-DD
@@ -226,9 +227,22 @@ Open the space folder as an Obsidian vault. The server generates `wiki/index.md`
 - **Batch efficiently:** Plan all pages for a source, then write them rapidly
 - **Trust the server:** Never hand-edit `meta/`, `raw/`, or generated `index.md` / `log.md`
 
+## Agent Working-Memory (Trajectories)
+
+The wiki captures what you *do*, not only what you read. One task = one immutable packet:
+
+```
+raw/trajectories/TRJ-*  →  wiki/skills/*  (+ optional wiki/cases/*)
+```
+
+- `wiki_capture_trajectory(title, outcome, steps, summary)` — you pass the meaningful tool-call record explicitly (the server never sees the live session). Emits packet + skeleton `cases/` page.
+- `wiki_distill_skills()` — undistilled packets with summaries; generalize into `skill` pages via `wiki_ensure_page(type="skill")`, then `wiki_distill_skills(mark_distilled=[...])`.
+- `wiki_recall_skill(query, kind)` — "have I done this before?" at task start.
+
+A **skill** generalizes across trajectories ("how I do X"); a **case** is one concrete run. Packets are immutable — edit skill/case pages, never the packet.
+
 ## Dropped Upstream Features (deliberate)
 
-- Agent working-memory (trajectories trio, skill/case pages) — deferred, needs server types + packets.
 - `/wiki-model`, `/wiki-settings`, `/wiki-dashboard` — host-specific screens.
 - Background ingest on a task model — always synchronous here.
 - `wiki_graph`, `wiki_suggest` — no graph engine; recall + lint cover.
