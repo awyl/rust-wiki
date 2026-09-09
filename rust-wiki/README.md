@@ -107,10 +107,10 @@ similarity into lexical scores. No provider → clean no-op message.
   pages there surface in every space's recall (layered recall).
 - Pin a connection: `wiki_use_space` (per-connection, server-side).
 
-## Tools (17)
+## Tools (18)
 
 `wiki_bootstrap`, `wiki_use_space`, `wiki_capture_source`, `wiki_ingest`,
-`wiki_ensure_page`, `wiki_read_page`, `wiki_write_page`, `wiki_recall`,
+`wiki_ensure_page`, `wiki_template`, `wiki_read_page`, `wiki_write_page`, `wiki_recall`,
 `wiki_search`, `wiki_retro`, `wiki_observe`, `wiki_lint`, `wiki_status`,
 `wiki_rebuild_meta`, `wiki_watch`, `wiki_reindex_embeddings`,
 `wiki_log_event`.

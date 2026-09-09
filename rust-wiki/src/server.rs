@@ -119,6 +119,14 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         },
         "required": ["type", "title"]
     })),
+    ("wiki_template", "Get the authoritative page template for a type ({date} filled, {title} placeholder). Scaffold from this, never from frozen copies.", json!({
+        "type": "object",
+        "properties": {
+            "space": {"type": "string"},
+            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis", "source"]}
+        },
+        "required": ["type"]
+    })),
     ("wiki_read_page", "Read a wiki page by id (e.g. concepts/rag).", json!({
         "type": "object",
         "properties": {"space": {"type": "string"}, "id": {"type": "string"}},
@@ -343,6 +351,9 @@ fn dispatch(
         )?)?),
         "wiki_read_page" => Ok(serde_json::to_value(
             hub.read_page(need_space!(), args["id"].as_str().unwrap_or(""))?,
+        )?),
+        "wiki_template" => Ok(serde_json::to_value(
+            hub.template(need_space!(), args["type"].as_str().unwrap_or(""))?,
         )?),
         "wiki_write_page" => Ok(serde_json::to_value(hub.write_page(
             need_space!(),

@@ -293,6 +293,15 @@ impl WikiApi for Hub {
         })
     }
 
+    fn template(&self, space: &str, page_type: &str) -> ApiResult<TemplateOut> {
+        let v = self.target(Some(space), Some(space))?;
+        let content = vp::template(&v, page_type).map_err(ApiError::invalid)?;
+        Ok(TemplateOut {
+            page_type: page_type.to_string(),
+            content,
+        })
+    }
+
     fn recall(&self, space: &str, query: &str, max_results: Option<u32>) -> ApiResult<RecallOut> {
         let v = self.target(Some(space), Some(space))?;
         let registry = vr::ensure_registry(&v).map_err(|e| ApiError::new("io", e))?;

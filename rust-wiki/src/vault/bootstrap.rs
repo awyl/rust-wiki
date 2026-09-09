@@ -49,26 +49,29 @@ Layout:
 - `templates/` — page templates used on creation.
 ";
 
+// Ported from zosmaai/pi-llm-wiki skills/llm-wiki/templates/pages/*.md.
+// Adaptations: `{title}`/`{date}` placeholders, `raw/sources/` paths (flat
+// layout, no `.llm-wiki/` nesting), plus our `status`/`tags`/`confidence` lines.
 const TEMPLATES: &[(&str, &str)] = &[
     (
         "concept",
-        "# {title}\n\n## Summary\n\n\n## Details\n\n\n## Related\n\n",
+        "---\ntype: concept\ntitle: \"{title}\"\nstatus: active\ndomain: ai\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\nconcepts: []\nsources: []\n---\n\n# {title}\n\nOne-line definition of this concept.\n\n## Definition\n\n\n## How It Works\n\n\n## Examples\n\n\n## Related Concepts\n\n\n## Sources\n\n",
     ),
     (
         "entity",
-        "# {title}\n\n## What it is\n\n\n## Notes\n\n\n## Related\n\n",
-    ),
-    (
-        "synthesis",
-        "# {title}\n\n## Thesis\n\n\n## Tensions\n\n\n## Sources\n\n",
-    ),
-    (
-        "analysis",
-        "# {title}\n\n## Question\n\n\n## Answer\n\n\n## Sources\n\n",
+        "---\ntype: entity\ntitle: \"{title}\"\nstatus: active\ncategory: tool\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\nconcepts: []\nsources: []\n---\n\n# {title}\n\nOne-line description of who/what this is and why they matter.\n\n## Overview\n\n\n## Key Facts\n\n\n## Links\n\n\n## Sources\n\n",
     ),
     (
         "source",
-        "# {title}\n\nSource: \n\n## Key claims\n\n\n## Quotes\n\n",
+        "---\ntype: source\ntitle: \"{title}\"\nstatus: active\nformat: article\nraw_path: \ningested: {date}\ntopics: []\ncreated: {date}\nupdated: {date}\nconfidence: 0.5\nconcepts: []\n---\n\n# {title}\n\n## Summary\n\n\n## Key Takeaways\n\n\n## Entities Mentioned\n\n\n## Concepts Mentioned\n\n\n## Notable Quotes\n\n\n## Connections\n\n",
+    ),
+    (
+        "analysis",
+        "---\ntype: analysis\ntitle: \"{title}\"\nstatus: active\ntopic: \"\"\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\nsources: []\nsources_count: 0\n---\n\n# {title}\n\n> _Durable answer derived from wiki content._\n\n## Question\n\n\n## Answer\n\n\n## Key Insights\n\n\n## Sources Used\n\n\n## Related Pages\n\n",
+    ),
+    (
+        "synthesis",
+        "---\ntype: synthesis\ntitle: \"{title}\"\nstatus: active\ntopic: \"\"\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\nsources: []\nsources_count: 0\n---\n\n# {title}\n\n## Question\n\n\n## Analysis\n\n\n## Key Insights\n\n\n## Conclusion\n\n\n## Sources Used\n\n\n## Related Pages\n\n",
     ),
 ];
 

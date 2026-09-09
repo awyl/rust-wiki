@@ -99,6 +99,13 @@ pub struct WritePageOut {
     pub updated: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct TemplateOut {
+    #[serde(rename = "type")]
+    pub page_type: String,
+    pub content: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct RecallMatch {
     pub id: String,
@@ -211,6 +218,10 @@ pub trait WikiApi: Send + Sync {
     ) -> ApiResult<EnsurePageOut>;
     fn read_page(&self, space: &str, id: &str) -> ApiResult<ReadPageOut>;
     fn write_page(&self, space: &str, id: &str, content: &str) -> ApiResult<WritePageOut>;
+    /// Authoritative page template for `page_type` (`{date}` filled,
+    /// `{title}` left as placeholder). Keeps agents on the server's
+    /// current scaffolds without frozen skill-text copies.
+    fn template(&self, space: &str, page_type: &str) -> ApiResult<TemplateOut>;
     fn recall(&self, space: &str, query: &str, max_results: Option<u32>) -> ApiResult<RecallOut>;
     fn search(&self, space: &str, query: &str, page_type: Option<&str>) -> ApiResult<SearchOut>;
     fn status(&self, space: &str) -> ApiResult<StatusOut>;
