@@ -1,11 +1,11 @@
 # rust-wiki — remote zosmaai-style wiki MCP server (design spec)
 
 **Date:** 2026-09-06 · **Status:** approved direction, pre-implementation
-**Replaces:** geronimo-iia/llm-wiki + its 17 vendored skills (full cutover, no coexistence)
+**Replaces:** zosmaai/pi-llm-wiki + its 17 vendored skills (full cutover, no coexistence)
 
 ## Decision context (2026-09-06)
 
-Ditch geronimo-iia/llm-wiki and its vendored skills entirely. Adapt
+Ditch zosmaai/pi-llm-wiki and its vendored skills entirely. Adapt
 zosmaai/pi-llm-wiki's engine model as closely as possible, re-hosted as a
 **remote Rust MCP server** so every agent on every container shares one
 centralized knowledge service, with **spaces** for multi-project isolation
@@ -13,7 +13,7 @@ centralized knowledge service, with **spaces** for multi-project isolation
 
 Evidence driving the decision:
 
-- geronimo pain: ingestion and page-writing are an LLM minefield — slug vs
+- legacy pain: ingestion and page-writing are an LLM minefield — slug vs
   filesystem paths, strict enums, type-mismatch frontmatter edges, opaque
   degraded-stamp status. Recurring errors every session.
 - zosmaai pain: none observed in hands-on use; works fine.
@@ -25,8 +25,8 @@ Decisions locked by the owner (2026-09-06):
 |---|---|
 | Name | **rust-wiki** |
 | Vault root | Default: local to the executable; override via env (`WIKI_VAULT_ROOT`) |
-| Migration | **None** — fresh vaults, nothing carried from geronimo |
-| geronimo coexistence | **None** — hard cutover |
+| Migration | **None** — fresh vaults, nothing carried from the legacy engine |
+| legacy coexistence | **None** — hard cutover |
 | Auth | **None** (trusted network) |
 
 ## Key discovery that shapes everything
@@ -133,7 +133,7 @@ Adapted from zosmaai's 14; semantics preserved:
   off | validate | normalize.
 - Templates: page templates per type ship in the vault at bootstrap.
 
-## Skill adaptation (replaces geronimo's 17 vendored skills)
+## Skill adaptation (replaces the 17 vendored upstream skills)
 
 zosmaai ships **one** 17 KB `SKILL.md` + page templates = the entire agent
 brain. Port plan: vendor it, adapt two things — (1) remote tool notes (no
@@ -159,8 +159,8 @@ templates.
 `config.toml` next to the binary: `port` (default chosen at impl),
 `vault_root` (default `<exe_dir>/vaults`), env override `WIKI_VAULT_ROOT`.
 No auth (trusted network binding). Logging: tracing to stdout. Deploy:
-same container host as the geronimo engine it replaces; agents' MCP
-configs repoint at it; geronimo containers decommissioned at cutover.
+same container host as the legacy engine it replaces; agents' MCP
+configs repoint at it; legacy containers decommissioned at cutover.
 
 ## Testing
 
@@ -180,7 +180,7 @@ cross-space leakage). Mechanical core target ~85% coverage like upstream.
 4. **M4 — MCP server:** rmcp streamable-HTTP, per-connection space,
    config/env, e2e tool tests.
 5. **M5 — cutover:** autopilot retarget, skill vendoring + adaptation,
-   repoint agents, decommission geronimo.
+   repoint agents, decommission the legacy engine.
 
 ## OKF v0.2 support (2026-09-07, pulled forward from deferred)
 

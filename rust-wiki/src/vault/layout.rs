@@ -33,6 +33,9 @@ impl VaultPaths {
     pub fn raw_sources(&self) -> PathBuf {
         self.raw().join("sources")
     }
+    pub fn raw_trajectories(&self) -> PathBuf {
+        self.raw().join("trajectories")
+    }
     pub fn wiki_pages(&self) -> PathBuf {
         self.space_root.join("wiki")
     }

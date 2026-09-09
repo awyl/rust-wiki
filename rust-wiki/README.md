@@ -26,26 +26,19 @@ across containers and machines.
 
 ## Configuration
 
-Precedence: **environment → `<exe_dir>/config.toml` → defaults**.
+One labeled key per knob, single precedence per key: **environment → `<exe_dir>/config.toml` → default**. Every key is settable in the file; env overrides per key. Copy `config.toml.example` next to the binary to start.
 
 | Setting | Env | config.toml | Default |
 |---|---|---|---|
 | Vault root | `WIKI_VAULT_ROOT` | `vault_root` | `<exe_dir>/vaults` |
 | Port (HTTP mode) | `WIKI_PORT` | `port` | `8484` |
-| Maintenance interval | `WIKI_CRON_INTERVAL_SECS` | — | `3600` (hourly) |
-| Embedding endpoint | `WIKI_EMBEDDING_URL` | — | unset (feature off) |
-| Embedding model | `WIKI_EMBEDDING_MODEL` | — | `text-embedding-3-small` |
-| Embedding bearer token | `WIKI_EMBEDDING_TOKEN` | — | unset |
-| Recall links-first threshold | `WIKI_RECALL_LINKS_FIRST_THRESHOLD` | — | `50` (0 = always links-first) |
-| Git commit interval | `WIKI_GIT_INTERVAL_SECS` | — | `60` (0 = disabled) |
-| Git idle threshold | `WIKI_GIT_IDLE_SECS` | — | `300` |
-
-Example `config.toml` (must sit next to the binary):
-
-```toml
-port = 8484
-vault_root = "/var/lib/rust-wiki/vaults"
-```
+| Maintenance interval (secs, 0 = off) | `WIKI_CRON_INTERVAL_SECS` | `cron_interval_secs` | `3600` (hourly) |
+| Embedding endpoint | `WIKI_EMBEDDING_URL` | `embedding_url` | unset (feature off) |
+| Embedding model | `WIKI_EMBEDDING_MODEL` | `embedding_model` | `text-embedding-3-small` |
+| Embedding bearer token | `WIKI_EMBEDDING_TOKEN` | `embedding_token` | unset |
+| Recall links-first threshold | `WIKI_RECALL_LINKS_FIRST_THRESHOLD` | `recall_links_first_threshold` | `50` (0 = always links-first) |
+| Git commit interval (secs, 0 = off) | `WIKI_GIT_INTERVAL_SECS` | `git_interval_secs` | `60` |
+| Git idle threshold (secs) | `WIKI_GIT_IDLE_SECS` | `git_idle_secs` | `300` |
 
 ### Vault root
 
@@ -107,13 +100,14 @@ similarity into lexical scores. No provider → clean no-op message.
   pages there surface in every space's recall (layered recall).
 - Pin a connection: `wiki_use_space` (per-connection, server-side).
 
-## Tools (17)
+## Tools (21)
 
 `wiki_bootstrap`, `wiki_use_space`, `wiki_capture_source`, `wiki_ingest`,
-`wiki_ensure_page`, `wiki_read_page`, `wiki_write_page`, `wiki_recall`,
+`wiki_ensure_page`, `wiki_template`, `wiki_read_page`, `wiki_write_page`, `wiki_recall`,
 `wiki_search`, `wiki_retro`, `wiki_observe`, `wiki_lint`, `wiki_status`,
 `wiki_rebuild_meta`, `wiki_watch`, `wiki_reindex_embeddings`,
-`wiki_log_event`.
+`wiki_log_event`, `wiki_capture_trajectory`, `wiki_distill_skills`,
+`wiki_recall_skill`.
 
 `wiki_watch` with no arguments reports scheduler status;
 `{"run": true}` triggers an immediate all-spaces maintenance cycle.

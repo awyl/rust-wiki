@@ -12,10 +12,7 @@ const CHUNK: usize = 600;
 /// Pages above this count => links-first (no full previews).
 /// Configurable via `WIKI_RECALL_LINKS_FIRST_THRESHOLD` (0 = always links-first).
 pub fn links_first_threshold() -> u64 {
-    std::env::var("WIKI_RECALL_LINKS_FIRST_THRESHOLD")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(50)
+    crate::config::get().recall_links_first_threshold
 }
 /// Field weights (KISS: title/id dominate, type assists).
 const W_TITLE: f64 = 3.0;

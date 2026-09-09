@@ -12,12 +12,9 @@ use crate::hub::Hub;
 
 pub const DEFAULT_INTERVAL_SECS: u64 = 3600;
 
-/// Interval from env; 0 disables the scheduler.
+/// Interval from central config; 0 disables the scheduler.
 pub fn interval_from_env() -> u64 {
-    std::env::var("WIKI_CRON_INTERVAL_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_INTERVAL_SECS)
+    crate::config::get().cron_interval_secs
 }
 
 /// Spawn the background scheduler thread. No-op when interval is 0.

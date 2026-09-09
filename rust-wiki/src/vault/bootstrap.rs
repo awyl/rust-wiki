@@ -42,33 +42,48 @@ entry point.
 Layout:
 
 - `wiki/` — editable knowledge pages (`concepts/`, `entities/`,
-  `syntheses/`, `analyses/`, `sources/`). `wiki/index.md`, directory
+  `syntheses/`, `analyses/`, `sources/`, `requirements/`). `wiki/index.md`, directory
   `index.md` files, and `wiki/log.md` are generated — do not edit.
 - `raw/` — immutable captured sources. Do not edit.
 - `meta/` — server-owned registry and event stream. Do not edit.
 - `templates/` — page templates used on creation.
 ";
 
+// Ported from zosmaai/pi-llm-wiki skills/llm-wiki/templates/pages/*.md.
+// Adaptations: `{title}`/`{date}` placeholders, `raw/sources/` paths (flat
+// layout, no `.llm-wiki/` nesting), plus our `status`/`tags`/`confidence` lines.
 const TEMPLATES: &[(&str, &str)] = &[
     (
         "concept",
-        "# {title}\n\n## Summary\n\n\n## Details\n\n\n## Related\n\n",
+        "---\ntype: concept\ntitle: \"{title}\"\nstatus: active\ndomain: ai\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\nconcepts: []\nsources: []\n---\n\n# {title}\n\nOne-line definition of this concept.\n\n## Definition\n\n\n## How It Works\n\n\n## Examples\n\n\n## Related Concepts\n\n\n## Sources\n\n",
     ),
     (
         "entity",
-        "# {title}\n\n## What it is\n\n\n## Notes\n\n\n## Related\n\n",
-    ),
-    (
-        "synthesis",
-        "# {title}\n\n## Thesis\n\n\n## Tensions\n\n\n## Sources\n\n",
-    ),
-    (
-        "analysis",
-        "# {title}\n\n## Question\n\n\n## Answer\n\n\n## Sources\n\n",
+        "---\ntype: entity\ntitle: \"{title}\"\nstatus: active\ncategory: tool\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\nconcepts: []\nsources: []\n---\n\n# {title}\n\nOne-line description of who/what this is and why they matter.\n\n## Overview\n\n\n## Key Facts\n\n\n## Links\n\n\n## Sources\n\n",
     ),
     (
         "source",
-        "# {title}\n\nSource: \n\n## Key claims\n\n\n## Quotes\n\n",
+        "---\ntype: source\ntitle: \"{title}\"\nstatus: active\nformat: article\nraw_path: \ningested: {date}\ntopics: []\ncreated: {date}\nupdated: {date}\nconfidence: 0.5\nconcepts: []\n---\n\n# {title}\n\n## Summary\n\n\n## Key Takeaways\n\n\n## Entities Mentioned\n\n\n## Concepts Mentioned\n\n\n## Notable Quotes\n\n\n## Connections\n\n",
+    ),
+    (
+        "analysis",
+        "---\ntype: analysis\ntitle: \"{title}\"\nstatus: active\ntopic: \"\"\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\nsources: []\nsources_count: 0\n---\n\n# {title}\n\n> _Durable answer derived from wiki content._\n\n## Question\n\n\n## Answer\n\n\n## Key Insights\n\n\n## Sources Used\n\n\n## Related Pages\n\n",
+    ),
+    (
+        "synthesis",
+        "---\ntype: synthesis\ntitle: \"{title}\"\nstatus: active\ntopic: \"\"\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\nsources: []\nsources_count: 0\n---\n\n# {title}\n\n## Question\n\n\n## Analysis\n\n\n## Key Insights\n\n\n## Conclusion\n\n\n## Sources Used\n\n\n## Related Pages\n\n",
+    ),
+    (
+        "skill",
+        "---\ntype: skill\ntitle: \"{title}\"\nstatus: active\ncreated: {date}\nupdated: {date}\ntags: []\nconfidence: 0.5\ntrajectories: []\n---\n\n# {title}\n\n## When to Use\n\n\n## Steps\n\n\n## Pitfalls\n\n",
+    ),
+    (
+        "case",
+        "---\ntype: case\ntitle: \"{title}\"\nstatus: active\ntrajectory_id: \noutcome: success\ncreated: {date}\nupdated: {date}\n---\n\n# {title}\n\n## Task\n\n\n## Approach\n\n\n## Outcome\n\n",
+    ),
+    (
+        "requirement",
+        "---\ntype: requirement\ntitle: \"{title}\"\nstatus: draft\npriority: p2\ncreated: {date}\nupdated: {date}\nsource_id: \ndepends_on: []\n---\n\n# {title}\n\n## Description\n\n\n## Acceptance Criteria\n\n- [ ] \n\n## Links\n\n",
     ),
 ];
 
@@ -83,11 +98,15 @@ pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, B
     let dirs = [
         vault.templates(),
         vault.raw_sources(),
+        vault.raw_trajectories(),
         vault.wiki_pages().join("sources"),
         vault.wiki_pages().join("entities"),
         vault.wiki_pages().join("concepts"),
         vault.wiki_pages().join("syntheses"),
         vault.wiki_pages().join("analyses"),
+        vault.wiki_pages().join("requirements"),
+        vault.wiki_pages().join("skills"),
+        vault.wiki_pages().join("cases"),
         vault.meta(),
         vault.outputs(),
         vault.discoveries(),

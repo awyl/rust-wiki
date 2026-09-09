@@ -12,6 +12,9 @@ pub const PAGE_TYPES: &[(&str, &str)] = &[
     ("concept", "concepts"),
     ("synthesis", "syntheses"),
     ("analysis", "analyses"),
+    ("requirement", "requirements"),
+    ("skill", "skills"),
+    ("case", "cases"),
 ];
 
 pub fn folder_for(page_type: &str) -> Option<&'static str> {
@@ -90,8 +93,32 @@ fn template_body(vault: &VaultPaths, page_type: &str, title: &str) -> String {
     if raw.is_empty() {
         format!("# {title}\n\n")
     } else {
-        raw.replace("{title}", title)
+        fill_template(&raw, title)
     }
+}
+
+/// Substitute `{title}` and `{date}` (today UTC) in a template body.
+fn fill_template(raw: &str, title: &str) -> String {
+    let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    raw.replace("{title}", title).replace("{date}", &date)
+}
+
+/// Authoritative page-template read: returns `templates/{page_type}.md`
+/// with `{date}` filled and `{title}` left as a placeholder for the caller.
+/// Lets agents always scaffold from the server's current templates.
+pub fn template(vault: &VaultPaths, page_type: &str) -> Result<String, String> {
+    // Templates exist for the four ensure_page types plus `source`
+    // (skeleton pages from capture); source *pages* are system-written.
+    if folder_for(page_type).is_none() && page_type != "source" {
+        return Err(format!(
+            "unknown page type '{page_type}' — expected one of: entity, concept, synthesis, analysis, requirement, source"
+        ));
+    }
+    let path = vault.templates().join(format!("{page_type}.md"));
+    let raw = fs::read_to_string(&path)
+        .map_err(|_| format!("no template for page type '{page_type}' — re-bootstrap the space"))?;
+    let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    Ok(raw.replace("{date}", &date))
 }
 
 /// Create `folder/slug.md` if absent. Returns (id, created).
@@ -103,7 +130,7 @@ pub fn ensure_page(
     gate: GateMode,
 ) -> Result<(String, bool), String> {
     let Some(folder) = folder_for(page_type) else {
-        return Err(format!("unknown page type '{page_type}' — expected one of: entity, concept, synthesis, analysis"));
+        return Err(format!("unknown page type '{page_type}' — expected one of: entity, concept, synthesis, analysis, requirement"));
     };
     let slug = slugify(title);
     if !valid_slug(&slug) {
@@ -159,6 +186,13 @@ pub fn write_page(
     if !path.exists() {
         return Err(format!(
             "page '{id}' does not exist — use wiki_ensure_page to create"
+        ));
+    }
+    // Fail closed on fenceless writes: bare bodies bypass frontmatter and
+    // silently drop out of the registry. Read the page first, keep its fence.
+    if !content.trim_start().starts_with("---") {
+        return Err(format!(
+            "refusing fenceless write to '{id}' — read the page with wiki_read_page, keep its frontmatter fence, and write the complete file"
         ));
     }
     let gated = apply_gate(content, &read_registry(vault)?, gate)?;
@@ -315,6 +349,58 @@ mod tests {
         .unwrap();
         let content = read_page(&v, &id).unwrap();
         assert!(content.contains("[concepts/rag-note](/concepts/rag-note.md)"));
+    }
+
+    #[test]
+    fn write_page_rejects_fenceless_content() {
+        let (_t, v) = setup();
+        let (id, _) = ensure_page(&v, "concept", "Fence Guard", None, GateMode::Off).unwrap();
+        let err = write_page(&v, &id, "bare body without fence\n", GateMode::Off).unwrap_err();
+        assert!(err.contains("fenceless"));
+        // page unchanged
+        let content = read_page(&v, &id).unwrap();
+        assert!(!content.contains("bare body"));
+    }
+
+    #[test]
+    fn template_returns_filled_scaffold() {
+        let (_t, v) = setup();
+        let body = template(&v, "concept").unwrap();
+        assert!(body.starts_with("---\ntype: concept"));
+        assert!(body.contains("{title}"));
+        assert!(!body.contains("{date}")); // filled with today
+        let src = template(&v, "source").unwrap();
+        assert!(src.contains("format: article"));
+        let err = template(&v, "nope").unwrap_err();
+        assert!(err.contains("unknown page type"));
+    }
+
+    #[test]
+    fn templated_pages_pass_registry_scan() {
+        // Every bootstrap template must survive the fail-closed frontmatter
+        // scan: created pages enter the registry with zero diagnostics.
+        let (_t, v) = setup();
+        for t in [
+            "concept",
+            "entity",
+            "source",
+            "analysis",
+            "synthesis",
+            "requirement",
+        ] {
+            let scaffold = template(&v, t).unwrap().replace("{title}", "Probe");
+            let folder = match t {
+                "source" => "sources",
+                "requirement" => "requirements",
+                _ => "concepts",
+            };
+            let path = v.wiki_pages().join(format!("{folder}/probe-{t}.md"));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &scaffold).unwrap();
+        }
+        let reg = super::super::registry::rebuild_metadata(&v).unwrap();
+        assert!(reg.diagnostics.is_empty(), "{:?}", reg.diagnostics);
+        assert_eq!(reg.pages.len(), 6);
     }
 
     #[test]

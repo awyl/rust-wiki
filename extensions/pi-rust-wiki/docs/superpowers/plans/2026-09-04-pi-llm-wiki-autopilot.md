@@ -115,7 +115,7 @@ node_modules/
 #!/usr/bin/env bash
 # Re-sync skills/ from upstream llm-wiki-skills. Usage: scripts/vendor.sh [ref]
 set -euo pipefail
-REPO="geronimo-iia/llm-wiki-skills"
+REPO="zosmaai/pi-llm-wiki"
 REF="${1:-main}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -622,7 +622,7 @@ Expected: no errors. (If the fake `ExtensionAPI` cast in `test/hooks.test.ts` fi
 ```markdown
 # pi-llm-wiki-autopilot
 
-Autonomous [llm-wiki-skills](https://github.com/geronimo-iia/llm-wiki-skills) triggers for
+Autonomous [llm-wiki-skills](https://github.com/zosmaai/pi-llm-wiki) triggers for
 [pi](https://github.com/badlogic/pi-mono). Requires a connected llm-wiki MCP server (`wiki_*` tools).
 
 ## What it does
@@ -656,7 +656,7 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 
 ## Vendored skills
 
-Snapshot of `geronimo-iia/llm-wiki-skills@<REF>` (update this line when re-vendoring).
+Snapshot of `zosmaai/pi-llm-wiki@<REF>` (update this line when re-vendoring).
 Re-sync: `scripts/vendor.sh <ref>`, then diff `skills/` in git.
 
 ## Development

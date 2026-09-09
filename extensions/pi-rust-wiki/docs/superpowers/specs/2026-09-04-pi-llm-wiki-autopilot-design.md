@@ -5,13 +5,13 @@
 
 ## Purpose
 
-A pi package that makes the [llm-wiki-skills](https://github.com/geronimo-iia/llm-wiki-skills) workflows run autonomously inside pi sessions. The wiki MCP server (llm-wiki) is already connected and exposes `wiki_*` tools to the agent. What is missing is timing: something must decide *when* each skill should fire without the user asking.
+A pi package that makes the [llm-wiki-skills](https://github.com/zosmaai/pi-llm-wiki) workflows run autonomously inside pi sessions. The wiki MCP server (llm-wiki) is already connected and exposes `wiki_*` tools to the agent. What is missing is timing: something must decide *when* each skill should fire without the user asking.
 
 The extension is a thin orchestrator. It decides when; the skills decide how; the agent executes via the wiki MCP tools. The extension never speaks MCP itself.
 
 Reference implementations studied:
 
-- `geronimo-iia/llm-wiki-skills` — 17 Agent-Skills-standard SKILL.md files that orchestrate llm-wiki MCP tools. Source of the vendored skills. Declares `bootstrap`, `crystallize`, `research` as auto-capable.
+- `zosmaai/pi-llm-wiki` — 17 Agent-Skills-standard SKILL.md files that orchestrate llm-wiki MCP tools. Source of the vendored skills. Declares `bootstrap`, `crystallize`, `research` as auto-capable.
 - `zosmaai/pi-llm-wiki` — a pi package that hooks wiki behavior into pi. Heavy: implements its own engine, vault format, and MCP server. We reuse its hook patterns (`session_start` queue, `before_agent_start` injection, cache-stable system prompt) but none of its engine.
 
 ## Architecture

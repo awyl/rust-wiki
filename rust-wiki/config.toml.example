@@ -1,0 +1,38 @@
+# rust-wiki server config. Lives next to the binary as `config.toml`.
+# Every key below is optional; every key is overridable by environment
+# (env wins). See README "Configuration" for labels.
+
+# Port for `serve` HTTP mode. Env: WIKI_PORT. Default: 8484.
+port = 8484
+
+# Vault root directory (spaces live underneath).
+# Env: WIKI_VAULT_ROOT. Default: <exe_dir>/vaults.
+# vault_root = "/var/lib/rust-wiki/vaults"
+
+# Maintenance scheduler interval in seconds. 0 disables.
+# Env: WIKI_CRON_INTERVAL_SECS. Default: 3600.
+cron_interval_secs = 3600
+
+# Embedding endpoint (any OpenAI-compatible URL). Unset = semantic
+# recall off (pure lexical). Env: WIKI_EMBEDDING_URL. Default: unset.
+# embedding_url = "https://api.openai.com/v1/embeddings"
+
+# Embedding model id. Env: WIKI_EMBEDDING_MODEL. Default: text-embedding-3-small.
+embedding_model = "text-embedding-3-small"
+
+# Embedding bearer token (server-side only, never logged).
+# Env: WIKI_EMBEDDING_TOKEN. Default: unset.
+# embedding_token = "sk-..."
+
+# Recall links-first gate: vaults above this page count return links
+# instead of previews. 0 = always links-first.
+# Env: WIKI_RECALL_LINKS_FIRST_THRESHOLD. Default: 50.
+recall_links_first_threshold = 50
+
+# Git auto-commit tick interval in seconds. 0 disables git backing.
+# Env: WIKI_GIT_INTERVAL_SECS. Default: 60.
+git_interval_secs = 60
+
+# Git idle threshold in seconds before a dirty vault commits.
+# Env: WIKI_GIT_IDLE_SECS. Default: 300.
+git_idle_secs = 300

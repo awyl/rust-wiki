@@ -71,12 +71,12 @@ impl Embedder for HttpEmbedder {
     }
 }
 
-/// Build the provider from env. None = feature off.
+/// Build the provider from central config. None = feature off.
 pub fn from_env() -> Option<Box<dyn Embedder>> {
-    let url = std::env::var("WIKI_EMBEDDING_URL").ok()?;
-    let model =
-        std::env::var("WIKI_EMBEDDING_MODEL").unwrap_or_else(|_| "text-embedding-3-small".into());
-    let token = std::env::var("WIKI_EMBEDDING_TOKEN").ok();
+    let cfg = crate::config::get();
+    let url = cfg.embedding_url.clone()?;
+    let model = cfg.embedding_model.clone();
+    let token = cfg.embedding_token.clone();
     Some(Box::new(HttpEmbedder { url, model, token }))
 }
 
