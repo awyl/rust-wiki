@@ -129,34 +129,107 @@ describe("research nudge", () => {
 });
 
 describe("retro", () => {
-  it("fires at the threshold, re-arms, and auto-triggers an idle agent", async () => {
+  const mutate = { toolName: "edit", input: {} };
+  const workerOk = async () => ({ ok: true, summary: "RETRO DONE pages=1 [x]" });
+
+  it("fires at the window when the window did mutating work, then notifies (no context)", async () => {
     const { ensureWikiReadyFn } = recorder();
-    const { handlers, sent } = await loadExtension({ ensureWikiReadyFn });
+    const spawned: any[] = [];
+    const { handlers, sent } = await loadExtension({
+      ensureWikiReadyFn,
+      spawnWorkerFn: (async (...a: any[]) => {
+        spawned.push(a);
+        return workerOk();
+      }) as any,
+    });
     const ctx = fakeCtx("/work");
     await handlers.get("session_start")!({ reason: "startup" }, ctx);
-    await handlers.get("before_agent_start")!({ prompt: "hi", systemPrompt: "BASE" }, ctx);
+    const toolCall = handlers.get("tool_call")!;
     const settled = handlers.get("agent_settled")!;
-    for (let i = 0; i < 16; i++) await settled({}, ctx);
-    const retro = sent.filter((s) => s.message.customType === "llm-wiki-retro");
-    expect(retro).toHaveLength(2); // runs 8 and 16
-    expect(retro[0].options).toEqual({ deliverAs: "followUp", triggerTurn: true });
-    expect(retro[0].message.content).toContain("pi -p");
+    for (let i = 0; i < 16; i++) {
+      await toolCall(mutate, {}); // every run mutates
+      await settled({}, ctx);
+    }
+    await new Promise((r) => setImmediate(r));
+    expect(spawned).toHaveLength(2); // windows ending at runs 8 and 16
+    expect(sent).toHaveLength(0); // zero model context: no sendMessage
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("RETRO DONE"), "info");
   });
 
-  it("session_start resets the retro counter and proposal flag", async () => {
+  it("default fires every window — the worker judges triviality from the transcript", async () => {
     const { ensureWikiReadyFn } = recorder();
-    const { handlers, sent } = await loadExtension({ ensureWikiReadyFn });
+    let spawns = 0;
+    const { handlers } = await loadExtension({
+      ensureWikiReadyFn,
+      spawnWorkerFn: (async () => {
+        spawns += 1;
+        return workerOk();
+      }) as any,
+    });
     const ctx = fakeCtx("/work");
+    await handlers.get("session_start")!({ reason: "startup" }, ctx);
     const settled = handlers.get("agent_settled")!;
-    for (let i = 0; i < 8; i++) await settled({}, ctx);
-    await handlers.get("session_start")!({ reason: "new" }, ctx);
-    for (let i = 0; i < 7; i++) await settled({}, ctx);
-    expect(sent.filter((s) => s.message.customType === "llm-wiki-retro")).toHaveLength(1);
-    await settled({}, ctx);
-    expect(sent.filter((s) => s.message.customType === "llm-wiki-retro")).toHaveLength(2);
+    for (let i = 0; i < 16; i++) await settled({}, ctx); // no tool calls
+    await new Promise((r) => setImmediate(r));
+    expect(spawns).toBe(2); // windows end at 8 and 16; worker may record zero pages
   });
 
-  it("oncePerSession pins retro to the first threshold only", async () => {
+  it("minMutatingCalls gate skips quiet windows silently", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hooks-gate-"));
+    mkdirSync(join(dir, ".pi"), { recursive: true });
+    writeFileSync(
+      join(dir, ".pi", "llm-wiki.json"),
+      JSON.stringify({ retro: { minMutatingCalls: 1 } }),
+    );
+    try {
+      const { ensureWikiReadyFn } = recorder();
+      let spawns = 0;
+      const { handlers } = await loadExtension({
+        ensureWikiReadyFn,
+        spawnWorkerFn: (async () => {
+          spawns += 1;
+          return workerOk();
+        }) as any,
+      });
+      const ctx = fakeCtx(dir);
+      await handlers.get("session_start")!({ reason: "startup" }, ctx);
+      const settled = handlers.get("agent_settled")!;
+      for (let i = 0; i < 16; i++) await settled({}, ctx); // no tool calls
+      await new Promise((r) => setImmediate(r));
+      expect(spawns).toBe(0);
+      expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("retro"), expect.anything());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("session_start resets counters", async () => {
+    const { ensureWikiReadyFn } = recorder();
+    let spawns = 0;
+    const { handlers } = await loadExtension({
+      ensureWikiReadyFn,
+      spawnWorkerFn: (async () => {
+        spawns += 1;
+        return workerOk();
+      }) as any,
+    });
+    const ctx = fakeCtx("/work");
+    const toolCall = handlers.get("tool_call")!;
+    const settled = handlers.get("agent_settled")!;
+    for (let i = 0; i < 8; i++) {
+      await toolCall(mutate, {});
+      await settled({}, ctx);
+    }
+    await handlers.get("session_start")!({ reason: "new" }, ctx);
+    for (let i = 0; i < 7; i++) {
+      await toolCall(mutate, {});
+      await settled({}, ctx);
+    }
+    await new Promise((r) => setImmediate(r));
+    expect(spawns).toBe(1);
+  });
+
+  it("oncePerSession pins retro to the first window only", async () => {
     const dir = mkdtempSync(join(tmpdir(), "hooks-config-"));
     mkdirSync(join(dir, ".pi"), { recursive: true });
     writeFileSync(
@@ -165,14 +238,44 @@ describe("retro", () => {
     );
     try {
       const { ensureWikiReadyFn } = recorder();
-      const { handlers, sent } = await loadExtension({ ensureWikiReadyFn });
+      let spawns = 0;
+      const { handlers } = await loadExtension({
+        ensureWikiReadyFn,
+        spawnWorkerFn: (async () => {
+          spawns += 1;
+          return workerOk();
+        }) as any,
+      });
       await handlers.get("session_start")!({ reason: "startup" }, fakeCtx(dir));
+      const toolCall = handlers.get("tool_call")!;
       const settled = handlers.get("agent_settled")!;
-      for (let i = 0; i < 24; i++) await settled({}, fakeCtx(dir));
-      expect(sent.filter((s) => s.message.customType === "llm-wiki-retro")).toHaveLength(1);
+      for (let i = 0; i < 24; i++) {
+        await toolCall(mutate, {});
+        await settled({}, fakeCtx(dir));
+      }
+      await new Promise((r) => setImmediate(r));
+      expect(spawns).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("worker failure surfaces a warning notice", async () => {
+    const { ensureWikiReadyFn } = recorder();
+    const { handlers } = await loadExtension({
+      ensureWikiReadyFn,
+      spawnWorkerFn: (async () => ({ ok: false, summary: "worker exited 1" })) as any,
+    });
+    const ctx = fakeCtx("/work");
+    await handlers.get("session_start")!({ reason: "startup" }, ctx);
+    const toolCall = handlers.get("tool_call")!;
+    const settled = handlers.get("agent_settled")!;
+    for (let i = 0; i < 8; i++) {
+      await toolCall(mutate, {});
+      await settled({}, ctx);
+    }
+    await new Promise((r) => setImmediate(r));
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("worker exited 1"), "warning");
   });
 
   it("env guard disables all hooks (prevents worker recursion)", async () => {
@@ -191,10 +294,12 @@ describe("worker file", () => {
   it("worker-retro.md ships the full unattended procedure", () => {
     const file = readFileSync(join(__dirname, "../llm-wiki-skills/worker-retro.md"), "utf-8");
     expect(file).toContain("AUTO-WRITE");
+    expect(file).toContain("non-trivial");
     expect(file).toContain("wiki_use_space");
     expect(file).toContain("wiki_retro");
     expect(file).toContain("wiki_lint");
-    expect(file).toContain("intercom");
+    expect(file).toContain("RETRO DONE");
+    expect(file).not.toContain("intercom");
   });
 });
 
@@ -217,27 +322,23 @@ describe("health hints (C+D)", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("3 orphans"), "warning");
   });
 
-  it("re-checks when retro auto-fires", async () => {
-    let n = 0;
-    const healthFn = async () => {
-      n += 1;
-      return n === 1 ? good : warn;
-    };
+  it("retro fire is notice-only — no extra health re-check, no context", async () => {
+    const healthFn = async () => good;
     const { handlers, sent } = await loadExtension({
       ensureWikiReadyFn: async () => ({ space: "ok", index: "ok", detail: "d" }),
       healthFn,
+      spawnWorkerFn: (async () => ({ ok: true, summary: "RETRO DONE pages=0" })) as any,
     });
     const ctx = fakeCtx("/work");
     await handlers.get("session_start")!({}, ctx);
-    for (let i = 0; i < 7; i++) {
-      await handlers.get("before_agent_start")!({ prompt: `p${i}`, systemPrompt: "BASE" }, ctx);
+    const toolCall = handlers.get("tool_call")!;
+    for (let i = 0; i < 8; i++) {
+      await toolCall({ toolName: "edit", input: {} }, {});
       await handlers.get("agent_settled")!({}, ctx);
     }
-    expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("orphans"), "warning"); // healthy so far
-    await handlers.get("before_agent_start")!({ prompt: "p7", systemPrompt: "BASE" }, ctx);
-    await handlers.get("agent_settled")!({}, ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("orphans"), "warning"); // retro re-check warned
-    expect(sent).toHaveLength(1); // retro fired once
+    await new Promise((r) => setImmediate(r));
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("RETRO DONE"), "info");
+    expect(sent).toHaveLength(0);
   });
 });
 

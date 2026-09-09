@@ -40,7 +40,14 @@ describe("loadConfig", () => {
       display: false,
       wikiMcpUrl: "http://host.containers.internal:9999/mcp/wiki",
       wikiMcpToken: process.env.WIKI_TOKEN ?? process.env.AIPROXY_TOKEN ?? "",
-      retro: { enabled: true, everyNRuns: 3, oncePerSession: false },
+      retro: {
+        enabled: true,
+        everyNRuns: 3,
+        oncePerSession: false,
+        minMutatingCalls: 0,
+        discover: true,
+        maxDiscoverCaptures: 3,
+      },
     });
   });
 
@@ -74,7 +81,14 @@ describe("loadConfig", () => {
       display: false,
       wikiMcpUrl: "http://host.containers.internal:9999/mcp/wiki",
       wikiMcpToken: process.env.WIKI_TOKEN ?? process.env.AIPROXY_TOKEN ?? "",
-      retro: { enabled: false, everyNRuns: 2, oncePerSession: false },
+      retro: {
+        enabled: false,
+        everyNRuns: 2,
+        oncePerSession: false,
+        minMutatingCalls: 0,
+        discover: true,
+        maxDiscoverCaptures: 3,
+      },
     });
   });
 

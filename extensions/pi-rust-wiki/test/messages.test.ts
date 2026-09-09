@@ -49,7 +49,9 @@ describe("directive builders", () => {
     expect(file).toContain("wiki_use_space");
     expect(file).toContain("wiki_retro");
     expect(file).toContain("wiki_lint");
-    expect(file).toContain("intercom");
+    expect(file).toContain("non-trivial");
+    expect(file).toContain("RETRO DONE");
+    expect(file).not.toContain("intercom");
   });
 });
 

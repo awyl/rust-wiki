@@ -3,7 +3,8 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG, loadConfig, type AutopilotConfig } from "./lib/config.js";
 import { ensureWikiReady } from "./lib/bootstrap.js";
-import { buildRetroDirective, buildResearchNudge } from "./lib/messages.js";
+import { buildResearchNudge } from "./lib/messages.js";
+import { buildEvidence, isMutatingTool, shouldFireRetro, spawnWorker } from "./lib/retro.js";
 import {
   buildHealthHint,
   buildRecallMessage,
@@ -18,6 +19,8 @@ export interface ExtensionDeps {
   ensureWikiReadyFn?: typeof ensureWikiReady;
   /** Test seam: replaces the wiki_status health probe. */
   healthFn?: typeof healthForPrompt;
+  /** Test seam: replaces the detached worker spawn. */
+  spawnWorkerFn?: typeof spawnWorker;
 }
 
 export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps = {}): void {
@@ -31,8 +34,10 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   const workerPromptPath = join(here, "worker-retro.md");
   const ensure = deps.ensureWikiReadyFn ?? ensureWikiReady;
   const health = deps.healthFn ?? healthForPrompt;
+  const spawnW = deps.spawnWorkerFn ?? spawnWorker;
 
   let settledRuns = 0;
+  let mutatingCalls = 0;
   let retroProposed = false;
   let bootstrapRan = false;
   // Space pin: first successful wiki_use_space wins. Personal switching is
@@ -53,7 +58,10 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
 
   pi.on("tool_call", async (event) => {
     const e = event as unknown as { toolName?: string; input?: { space?: string } };
-    if (!e.toolName || !isUseSpaceCall(e.toolName)) return;
+    if (!e.toolName) return;
+    // Non-trivial gate: count file-mutating calls in the window.
+    if (isMutatingTool(e.toolName)) mutatingCalls += 1;
+    if (!isUseSpaceCall(e.toolName)) return;
     const requested = e.input?.space;
     if (!requested) return;
     if (requested === "personal") {
@@ -80,6 +88,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
 
   pi.on("session_start", async (_event, ctx) => {
     settledRuns = 0;
+    mutatingCalls = 0;
     retroProposed = false;
     bootstrapRan = false;
     pinnedSpace = null;
@@ -152,22 +161,40 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     if (!retro.enabled) return;
     if (retro.oncePerSession && retroProposed) return;
     settledRuns += 1;
-    if (settledRuns < retro.everyNRuns) return;
-    // Re-arm: fires again after another `everyNRuns` settled runs, unless
-    // `oncePerSession` pins it to the first fire only.
-    settledRuns = 0;
-    retroProposed = true;
-    // D: re-surface accumulated problems at retro time.
-    if (wikiName) {
-      const status = await health(config.wikiMcpUrl, config.wikiMcpToken, wikiName);
-      const hint = status ? buildHealthHint(status) : undefined;
-      if (hint) ctx.ui.notify(`[rust-wiki] ${hint}`, "warning");
+    if (
+      !shouldFireRetro(settledRuns, retro.everyNRuns, mutatingCalls, retro.minMutatingCalls) &&
+      settledRuns < retro.everyNRuns * 10
+    ) {
+      // Window not reached, or reached but the window did no mutating
+      // work (trivial stretch) — silent reset, no worker, no notice.
+      if (settledRuns >= retro.everyNRuns) {
+        settledRuns = 0;
+        mutatingCalls = 0;
+      }
+      return;
     }
-    await pi.sendMessage(
-      buildRetroDirective(skillPath("retro"), workerPromptPath, wikiName, config.display),
-      // followUp + triggerTurn: if the agent is idle, start a run immediately
-      // so the directive executes instead of waiting for the user's next message.
-      { deliverAs: "followUp", triggerTurn: true },
-    );
+    // Re-arm: fires again after another `everyNRuns` settled runs, unless
+    // `oncePerSession` pins it to the first fire only. Backstop (x10) keeps
+    // a long trivial stretch from deferring retro forever.
+    const space = wikiName ?? "default";
+    const evidence = buildEvidence(ctx.cwd, space, mutatingCalls);
+    // Transcript access: the worker judges non-triviality from the session
+    // itself (analysis/decisions live there, not in git). Best-effort —
+    // the worker falls back to git evidence when the file is unavailable.
+    let sessionFile = "";
+    try {
+      sessionFile = ctx.sessionManager?.getSessionFile?.() ?? "";
+    } catch {
+      sessionFile = "";
+    }
+    settledRuns = 0;
+    mutatingCalls = 0;
+    retroProposed = true;
+    const logPath = `/tmp/llm-wiki-retro-${space}.log`;
+    // Fully background: extension-side child process, zero model context.
+    // Bootstrap-style UI notice on completion — never injected context.
+    void spawnW(workerPromptPath, evidence.path, skillPath("retro"), space, logPath, sessionFile).then((r) => {
+      ctx.ui.notify(`[rust-wiki] retro: ${r.summary}`, r.ok ? "info" : "warning");
+    });
   });
 }

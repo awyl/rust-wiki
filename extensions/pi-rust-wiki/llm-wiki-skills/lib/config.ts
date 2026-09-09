@@ -7,6 +7,11 @@ export interface RetroConfig {
   everyNRuns: number;
   /** When true, retro fires once per session (old behavior). Default: re-arms after each fire. */
   oncePerSession: boolean;
+  /** Minimum mutating (edit/write) tool calls in the window to fire. 0 = every window fires. */
+  minMutatingCalls: number;
+  /** Bounded discover pass inside the worker (MCP web search, max captures). */
+  discover: boolean;
+  maxDiscoverCaptures: number;
 }
 
 export interface AutopilotConfig {
@@ -32,7 +37,7 @@ export const DEFAULT_CONFIG: AutopilotConfig = {
   display: false,
   wikiMcpUrl: DEFAULT_WIKI_MCP_URL,
   wikiMcpToken: process.env.WIKI_TOKEN ?? process.env.AIPROXY_TOKEN ?? "",
-  retro: { enabled: true, everyNRuns: 8, oncePerSession: false },
+  retro: { enabled: true, everyNRuns: 8, oncePerSession: false, minMutatingCalls: 0, discover: true, maxDiscoverCaptures: 3 },
 };
 
 export const CONFIG_FILENAME = "llm-wiki.json";
@@ -84,6 +89,16 @@ export function loadConfig(cwd: string, globalDir: string = globalAgentDir()): L
           project.raw?.retro?.oncePerSession ??
           global.raw?.retro?.oncePerSession ??
           DEFAULT_CONFIG.retro.oncePerSession,
+        minMutatingCalls:
+          project.raw?.retro?.minMutatingCalls ??
+          global.raw?.retro?.minMutatingCalls ??
+          DEFAULT_CONFIG.retro.minMutatingCalls,
+        discover:
+          project.raw?.retro?.discover ?? global.raw?.retro?.discover ?? DEFAULT_CONFIG.retro.discover,
+        maxDiscoverCaptures:
+          project.raw?.retro?.maxDiscoverCaptures ??
+          global.raw?.retro?.maxDiscoverCaptures ??
+          DEFAULT_CONFIG.retro.maxDiscoverCaptures,
       },
     },
     warning,
