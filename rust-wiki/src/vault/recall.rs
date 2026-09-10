@@ -271,18 +271,19 @@ pub fn recall_layered_semantic(
     if let Some((query_vec, store)) = semantic {
         // 1. Boost the pages the lexical pass already found.
         for h in &mut hits {
-            if let Some(chunks) = store.pages.get(&h.id) {
-                h.score += semantic_score(super::embeddings::best_similarity(query_vec, chunks));
+            if let Some(pv) = store.pages.get(&h.id) {
+                h.score +=
+                    semantic_score(super::embeddings::best_similarity(query_vec, &pv.chunks));
             }
         }
         // 2. Admit pages lexical search missed but the vectors place close to
         // the query. Scored on the semantic term alone (there is no lexical
         // score to add to), so a strong paraphrase can still reach the top-N.
-        for (id, chunks) in &store.pages {
+        for (id, pv) in &store.pages {
             if hits.iter().any(|h| &h.id == id) {
                 continue;
             }
-            let sim = super::embeddings::best_similarity(query_vec, chunks);
+            let sim = super::embeddings::best_similarity(query_vec, &pv.chunks);
             if sim < SEMANTIC_MIN_COSINE {
                 continue;
             }
@@ -354,7 +355,12 @@ mod tests {
         for (id, cos) in entries {
             store.pages.insert(
                 (*id).into(),
-                vec![vec![*cos, (1.0 - cos * cos).max(0.0).sqrt()]],
+                crate::vault::embeddings::PageVectors {
+                    // Empty hash: real text never hashes to "", so nothing on
+                    // this hand-built store is ever skipped as unchanged.
+                    hash: String::new(),
+                    chunks: vec![vec![*cos, (1.0 - cos * cos).max(0.0).sqrt()]],
+                },
             );
         }
         store
@@ -464,11 +470,17 @@ mod tests {
         };
         store.pages.insert(
             "concepts/vector-friendly".into(),
-            vec![vec![1.0f32, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
+            crate::vault::embeddings::PageVectors {
+                hash: String::new(),
+                chunks: vec![vec![1.0f32, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
+            },
         );
         store.pages.insert(
             "concepts/vector-distant".into(),
-            vec![vec![0.0f32, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
+            crate::vault::embeddings::PageVectors {
+                hash: String::new(),
+                chunks: vec![vec![0.0f32, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
+            },
         );
 
         let (boosted, _) =

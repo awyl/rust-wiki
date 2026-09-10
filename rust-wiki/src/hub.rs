@@ -479,14 +479,25 @@ impl WikiApi for Hub {
         match &self.embedder {
             None => Ok(ReembedOut {
                 embedded: 0,
+                skipped: 0,
                 provider_configured: false,
                 message: "no embedding provider configured (set WIKI_EMBEDDING_URL + WIKI_EMBEDDING_MODEL); recall remains lexical".into(),
             }),
             Some(embedder) => {
                 let reg = vr::ensure_registry(&v).map_err(|e| ApiError::new("io", e))?;
-                let n = crate::vault::embeddings::reindex(&v, &reg, embedder.as_ref())
+                let r = crate::vault::embeddings::reindex(&v, &reg, embedder.as_ref())
                     .map_err(|e| ApiError::new("embedding_failed", e))?;
-                Ok(ReembedOut { embedded: n as u64, provider_configured: true, message: format!("embedded {n} pages with {}", embedder.model()) })
+                Ok(ReembedOut {
+                    embedded: r.embedded as u64,
+                    skipped: r.skipped as u64,
+                    provider_configured: true,
+                    message: format!(
+                        "embedded {} pages, skipped {} unchanged, with {}",
+                        r.embedded,
+                        r.skipped,
+                        embedder.model()
+                    ),
+                })
             }
         }
     }
@@ -758,7 +769,13 @@ mod tests {
             .unwrap()
             .pop()
             .unwrap();
-        store.pages.insert(e.id.clone(), vec![v]);
+        store.pages.insert(
+            e.id.clone(),
+            crate::vault::embeddings::PageVectors {
+                hash: String::new(),
+                chunks: vec![v],
+            },
+        );
         let vp = crate::vault::layout::VaultPaths::new(&h.root, "proj");
         store.save(&vp).unwrap();
 

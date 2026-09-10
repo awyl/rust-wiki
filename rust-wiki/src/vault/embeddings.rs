@@ -172,11 +172,32 @@ pub fn page_chunks(vault: &VaultPaths, id: &str, title: &str, excerpt: &str) -> 
     chunk_text(title, body)
 }
 
+/// One page's vectors plus the hash of the text they were built from.
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct PageVectors {
+    /// Hash of the embedded chunk text. Same hash under the same model = skip:
+    /// no provider call, no write.
+    pub hash: String,
+    /// One vector per chunk of the page body.
+    pub chunks: Vec<Vec<f32>>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct EmbeddingStore {
     pub model: String,
-    /// Page id -> one vector per chunk of its body.
-    pub pages: BTreeMap<String, Vec<Vec<f32>>>,
+    pub pages: BTreeMap<String, PageVectors>,
+}
+
+/// Stable 64-bit FNV-1a over the embedded text. Change detection only — not a
+/// security hash — but deliberately hand-rolled: `DefaultHasher` is explicitly
+/// not stable across releases, and this value is persisted.
+fn content_hash(text: &str) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in text.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
 }
 
 impl EmbeddingStore {
@@ -193,15 +214,19 @@ impl EmbeddingStore {
 }
 
 /// Best-effort single-page upsert after a write (option A: auto-embed on
-/// change). Uses the same title/id/excerpt text shape as `reindex` so
-/// vectors stay comparable. Lazy-creates the store (recording the live
-/// model) when absent — single-page cost only, so the write path never
-/// pays a backfill. Silent no-op when: stored model differs from the
-/// embedder, page unknown to the registry, or embedding fails. Writes
-/// are never blocked by this.
+/// change). Reads the page body from disk, so vectors always reflect what is
+/// actually stored. Lazy-creates the store (recording the live model) when
+/// absent — single-page cost only, so the write path never pays a backfill.
+/// Silent no-op when: the store exists but cannot be read as the current
+/// format (skipping beats replacing every other page's vectors with a
+/// one-page store), the stored model differs from the embedder, the page is
+/// unknown to the registry, the chunks are unchanged, or embedding fails.
+/// Writes are never blocked by this.
 pub fn upsert_page(vault: &VaultPaths, registry: &Registry, embedder: &dyn Embedder, id: &str) {
+    let store_file = vault.meta().join("embeddings.json");
     let mut store = match EmbeddingStore::load(vault) {
         Some(s) => s,
+        None if store_file.exists() => return,
         None => EmbeddingStore {
             model: embedder.model().to_string(),
             pages: Default::default(),
@@ -217,10 +242,25 @@ pub fn upsert_page(vault: &VaultPaths, registry: &Registry, embedder: &dyn Embed
     if chunks.is_empty() {
         return;
     }
+    let hash = content_hash(&chunks.join("\n"));
+    // Unchanged text under the same model: skip the provider call entirely.
+    if store
+        .pages
+        .get(id)
+        .is_some_and(|pv| pv.hash == hash && !pv.chunks.is_empty())
+    {
+        return;
+    }
     let Ok(vectors) = embedder.embed(&chunks) else {
         return;
     };
-    store.pages.insert(id.to_string(), vectors);
+    store.pages.insert(
+        id.to_string(),
+        PageVectors {
+            hash,
+            chunks: vectors,
+        },
+    );
     let _ = store.save(vault);
 }
 
@@ -228,24 +268,61 @@ pub fn embeddings_path(vault: &VaultPaths) -> std::path::PathBuf {
     vault.meta().join("embeddings.json")
 }
 
-/// Re-embed every page in the registry, chunk by chunk.
-/// Returns the number of pages that ended up with at least one vector.
+/// Outcome of a reindex.
+#[derive(Debug, Serialize, Default, PartialEq)]
+pub struct ReindexReport {
+    /// Pages whose vectors were rebuilt and persisted.
+    pub embedded: usize,
+    /// Pages skipped because text and model were already current.
+    pub skipped: usize,
+}
+
+/// Re-embed every page in the registry, chunk by chunk. Pages whose text hash
+/// and model are unchanged are skipped — a reindex over an unchanged vault
+/// costs no provider calls.
 pub fn reindex(
     vault: &VaultPaths,
     registry: &Registry,
     embedder: &dyn Embedder,
-) -> Result<usize, String> {
+) -> Result<ReindexReport, String> {
+    let previous = EmbeddingStore::load(vault);
+    let same_model = previous
+        .as_ref()
+        .is_some_and(|s| s.model == embedder.model());
     let mut store = EmbeddingStore {
         model: embedder.model().to_string(),
         pages: Default::default(),
     };
+    let mut skipped = 0usize;
     // One flat batch across every page (BTreeMap order = deterministic),
     // embedded in bounded windows so a large vault cannot send one enormous
     // request. `owners` maps each text back to its page id.
     let mut owners: Vec<&str> = Vec::new();
     let mut texts: Vec<String> = Vec::new();
+    let mut hashes: Vec<(&str, String)> = Vec::new();
     for (id, page) in &registry.pages {
-        for chunk in page_chunks(vault, id, &page.title, &page.excerpt) {
+        let chunks = page_chunks(vault, id, &page.title, &page.excerpt);
+        if chunks.is_empty() {
+            continue;
+        }
+        let hash = content_hash(&chunks.join("\n"));
+        if same_model {
+            if let Some(prev) = previous.as_ref().and_then(|s| s.pages.get(id)) {
+                if prev.hash == hash && !prev.chunks.is_empty() {
+                    store.pages.insert(
+                        id.clone(),
+                        PageVectors {
+                            hash,
+                            chunks: prev.chunks.clone(),
+                        },
+                    );
+                    skipped += 1;
+                    continue;
+                }
+            }
+        }
+        hashes.push((id.as_str(), hash));
+        for chunk in chunks {
             owners.push(id.as_str());
             texts.push(chunk);
         }
@@ -258,13 +335,25 @@ pub fn reindex(
                 .pages
                 .entry((*owner).to_string())
                 .or_default()
+                .chunks
                 .push(vector);
+        }
+    }
+    // Record the text hash once per page, and only for pages that actually
+    // got vectors — a page the provider skipped stays unstamped and is
+    // re-embedded next time.
+    for (id, hash) in hashes {
+        if let Some(p) = store.pages.get_mut(id) {
+            p.hash = hash;
         }
     }
     // Persist even when nothing was embeddable, so recall can tell
     // "semantic ran, found nothing" apart from "no store at all".
     store.save(vault)?;
-    Ok(store.pages.len())
+    Ok(ReindexReport {
+        embedded: store.pages.len() - skipped,
+        skipped,
+    })
 }
 
 /// Cosine similarity; 0 when either vector is empty.
@@ -349,8 +438,14 @@ mod tests {
     #[test]
     fn reindex_persists_all_pages_and_reloads() {
         let (_t, v, reg) = setup();
-        let n = reindex(&v, &reg, &MockEmbedder).unwrap();
-        assert_eq!(n, 2);
+        let r = reindex(&v, &reg, &MockEmbedder).unwrap();
+        assert_eq!(
+            r,
+            ReindexReport {
+                embedded: 2,
+                skipped: 0
+            }
+        );
         let store = EmbeddingStore::load(&v).unwrap();
         assert_eq!(store.model, "mock");
         assert_eq!(store.pages.len(), 2);
@@ -440,17 +535,127 @@ mod tests {
         )
         .unwrap();
 
-        let n = reindex(&v, &reg, &MockEmbedder).unwrap();
-        assert_eq!(n, 2, "both pages got vectors");
+        let r = reindex(&v, &reg, &MockEmbedder).unwrap();
+        assert_eq!(
+            r,
+            ReindexReport {
+                embedded: 2,
+                skipped: 0
+            },
+            "both pages got vectors"
+        );
         let store = EmbeddingStore::load(&v).unwrap();
         assert!(
-            store.pages["concepts/retrieval"].len() > 1,
+            store.pages["concepts/retrieval"].chunks.len() > 1,
             "long page -> several chunk vectors"
         );
         assert_eq!(
-            store.pages["concepts/quota"].len(),
+            store.pages["concepts/quota"].chunks.len(),
             1,
             "short page -> a single chunk"
+        );
+    }
+
+    #[test]
+    fn reindex_skips_pages_whose_text_is_unchanged() {
+        let (_t, v, reg) = setup();
+        let first = reindex(&v, &reg, &MockEmbedder).unwrap();
+        assert_eq!(first.embedded, 2);
+
+        // Same text, same model -> nothing re-embedded, vectors preserved.
+        let again = reindex(&v, &reg, &MockEmbedder).unwrap();
+        assert_eq!(
+            again,
+            ReindexReport {
+                embedded: 0,
+                skipped: 2
+            }
+        );
+        let store = EmbeddingStore::load(&v).unwrap();
+        assert_eq!(store.pages.len(), 2, "skipped pages keep their vectors");
+
+        // Editing one page's body re-embeds that page only.
+        let path = v.page_path("concepts/quota");
+        fs::write(&path, "---\ntitle: quota\n---\n\nbrand new body\n").unwrap();
+        let after_edit = reindex(&v, &reg, &MockEmbedder).unwrap();
+        assert_eq!(
+            after_edit,
+            ReindexReport {
+                embedded: 1,
+                skipped: 1
+            }
+        );
+
+        // A different model invalidates every stored vector.
+        let store = EmbeddingStore::load(&v).unwrap();
+        let stale = EmbeddingStore {
+            model: "other".into(),
+            ..store
+        };
+        stale.save(&v).unwrap();
+        let on_new_model = reindex(&v, &reg, &MockEmbedder).unwrap();
+        assert_eq!(
+            on_new_model,
+            ReindexReport {
+                embedded: 2,
+                skipped: 0
+            }
+        );
+    }
+
+    /// MockEmbedder plus a call counter, to prove the skip really avoids the
+    /// provider.
+    struct CountingEmbedder(std::sync::atomic::AtomicUsize);
+    impl Embedder for CountingEmbedder {
+        fn model(&self) -> &str {
+            "mock"
+        }
+        fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            MockEmbedder.embed(texts)
+        }
+    }
+
+    #[test]
+    fn upsert_skips_an_unchanged_page() {
+        use std::sync::atomic::Ordering;
+        let (_t, v, reg) = setup();
+        let path = v.page_path("concepts/retrieval");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "---\ntitle: retrieval\n---\n\nbody text here\n").unwrap();
+
+        let counter = CountingEmbedder(Default::default());
+        upsert_page(&v, &reg, &counter, "concepts/retrieval");
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+
+        // Same text, same model -> no provider call at all.
+        upsert_page(&v, &reg, &counter, "concepts/retrieval");
+        assert_eq!(
+            counter.0.load(Ordering::SeqCst),
+            1,
+            "unchanged text skipped"
+        );
+
+        // Edited text -> embedded again.
+        fs::write(&path, "---\ntitle: retrieval\n---\n\ndifferent body\n").unwrap();
+        upsert_page(&v, &reg, &counter, "concepts/retrieval");
+        assert_eq!(counter.0.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn upsert_never_replaces_an_unreadable_store() {
+        let (_t, v, reg) = setup();
+        fs::create_dir_all(v.meta()).unwrap();
+        let file = v.meta().join("embeddings.json");
+        fs::write(&file, "{\"older\": \"format\"}").unwrap();
+
+        upsert_page(&v, &reg, &MockEmbedder, "concepts/retrieval");
+
+        // Skipping beats overwriting every other page's vectors with a
+        // one-page store; `wiki_reindex_embeddings` rebuilds on request.
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "{\"older\": \"format\"}"
         );
     }
 

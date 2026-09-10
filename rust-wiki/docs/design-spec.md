@@ -287,16 +287,27 @@ feature off with a clean no-op from `wiki_reindex_embeddings`.
 - Client timeout 180s: a self-hosted model can take ~54s to answer the
   first, cold call (warm ~12ms). Verified live 2026-09-10 against aiproxy
   `embeddings-local/nomic-embed-text-v1.5` (768 dims, HTTP 200).
-- Store: `meta/embeddings.json` — `{model, pages: {id: [[f32]]}}`: one
-  vector per **chunk** of the page body (target 800 chars, packed by
-  paragraph, hard-split if a paragraph is longer, capped at 24 chunks per
-  page). Each chunk carries the page title so a bare chunk still has
-  context. Frontmatter is never embedded. The per-page ceiling bounds the
-  cost of a very long page — raise it, or add a vector index, only if long
-  pages start losing real content.
-- Writes stay cheap: every page write re-embeds that page's chunks only
-  (`upsert_page`); `wiki_reindex_embeddings` rebuilds the whole space in
-  bounded batches of 64 texts and returns the page count.
+- Store: `meta/embeddings.json` —
+  `{model, pages: {id: {hash, chunks: [[f32]]}}}`: one vector per **chunk** of
+  the page body (target 800 chars, packed by paragraph, hard-split if a
+  paragraph is longer, capped at 24 chunks per page). Each chunk carries the
+  page title so a bare chunk still has context. Frontmatter is never embedded.
+  The per-page ceiling bounds the cost of a very long page — raise it, or add
+  a vector index, only if long pages start losing real content.
+- Staleness: each page entry carries an FNV-1a hash of the embedded chunk text
+  (hand-rolled because `DefaultHasher` is documented as unstable across
+  releases and this value is persisted — change detection only, not security).
+  Neither `upsert_page` nor `wiki_reindex_embeddings` re-embeds a page whose
+  hash and model are unchanged. Verified live 2026-09-10: reindex of an
+  unchanged vault = `embedded 0 / skipped 2`, and after editing one page file
+  directly on disk (bypassing the server) = `embedded 1 / skipped 1`. A page
+  write also leaves the store already current, so the following reindex skips
+  it. `reindex` embeds in bounded batches of 64 texts.
+- Store format has no migration path (per the hard-cutover rule). A store
+  written by an older server does not deserialize, so `upsert_page` **skips**
+  instead of lazily creating a fresh store — overwriting would silently drop
+  every other page's vectors. One `wiki_reindex_embeddings` rebuilds it.
+- Trust-weighted scoring remains future work.
 - Blend (additive, not multiplicative — a page with no lexical score has
   nothing to multiply, so only an additive term can admit it):
   `score + 0.5 * 6.0 * max(0, best-chunk cosine)`. The lexical score keeps its
@@ -314,9 +325,8 @@ feature off with a clean no-op from `wiki_reindex_embeddings`.
   (0.5 x 6.0 x 0.674), with the lexical and mixed queries ranking sensibly.
   Candidates come from the space store; the personal layer keeps its lexical
   path (a per-space store holds only that space's pages).
-- Staleness: `wiki_reindex_embeddings` has no content-hash check yet, so it
-  re-embeds every page (chunk count x pages); zosmaai skips unchanged pages by
-  comparing a stored content hash. Trust-weighted scoring remains future work.
+- Staleness: covered above — unchanged pages cost no provider call, and a
+  page write leaves the store already current.
 
 ## Working memory: trajectories + requirements (2026-09-09)
 

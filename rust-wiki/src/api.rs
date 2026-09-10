@@ -204,6 +204,8 @@ pub struct DistillOut {
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct ReembedOut {
     pub embedded: u64,
+    /// Pages skipped because their text and model were already current.
+    pub skipped: u64,
     pub provider_configured: bool,
     pub message: String,
 }
