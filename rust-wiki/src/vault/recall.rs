@@ -19,6 +19,28 @@ const W_TITLE: f64 = 3.0;
 const W_ID: f64 = 2.0;
 const W_TYPE: f64 = 1.5;
 const W_BODY: f64 = 1.0;
+
+/// Semantic fusion (see `recall_layered_semantic`).
+///
+/// Minimum best-chunk cosine for a page with NO lexical match to be admitted
+/// as a semantic candidate. Keeps the candidate set bounded — near-orthogonal
+/// pages stay out instead of the whole embedded vault entering every query.
+const SEMANTIC_MIN_COSINE: f32 = 0.2;
+/// Lexical points a perfect (cosine = 1) semantic match is worth at full
+/// weight. Calibrated against this file's own scale, where a title hit is
+/// `W_TITLE` = 3.0: a perfect semantic match (0.5 x 6.0 = 3.0) lands level with
+/// a title hit, so it can reach the top-N but cannot outrank a real title match
+/// on its own. A strong paraphrase (cosine ~0.84) is worth 2.5.
+const SEMANTIC_SCALE: f64 = 6.0;
+/// Blend weight for the semantic signal (0 = lexical only).
+const SEMANTIC_WEIGHT: f64 = 0.5;
+
+/// Semantic contribution for a best-chunk cosine. Additive on purpose: a page
+/// with no lexical score has nothing to multiply, so only an additive term can
+/// admit it. `cos <= 0` is the identity, leaving pure-lexical ranking intact.
+fn semantic_score(cos: f32) -> f64 {
+    SEMANTIC_WEIGHT * SEMANTIC_SCALE * f64::from(cos.max(0.0))
+}
 /// Pseudo-relevance feedback: top docs + their top terms, one round.
 const PRF_DOCS: usize = 3;
 const PRF_TERMS: usize = 4;
@@ -207,9 +229,18 @@ pub fn recall_layered(
     )
 }
 
-/// Like `recall_layered`, but blends semantic similarity when a query
-/// embedding is supplied: score *= 1 + max(0, best chunk cosine) * 0.5,
-/// then re-sorts.
+/// Like `recall_layered`, but fuses semantic similarity when a query embedding
+/// is supplied. Two effects, both additive on top of the lexical score:
+///
+/// 1. pages the lexical pass found get `+ weight * SCALE * best-chunk cosine`;
+/// 2. pages lexical search MISSED are admitted as candidates when their
+///    best-chunk cosine clears `SEMANTIC_MIN_COSINE`, scored on that term
+///    alone — without this the semantic layer could only re-rank what lexical
+///    search already returned, and a query matching a page's *body* but none of
+///    its title/id/type/excerpt returned nothing at all.
+///
+/// Candidates are drawn from the space vault's own store; the personal layer
+/// keeps its lexical path (a per-space store holds only that space's pages).
 pub fn recall_layered_semantic(
     space_vault: &VaultPaths,
     personal_vault: Option<&VaultPaths>,
@@ -238,13 +269,34 @@ pub fn recall_layered_semantic(
     });
     hits.truncate(max_results as usize);
     if let Some((query_vec, store)) = semantic {
+        // 1. Boost the pages the lexical pass already found.
         for h in &mut hits {
             if let Some(chunks) = store.pages.get(&h.id) {
-                let sim = super::embeddings::best_similarity(query_vec, chunks);
-                if sim > 0.0 {
-                    h.score *= 1.0 + f64::from(sim) * 0.5;
-                }
+                h.score += semantic_score(super::embeddings::best_similarity(query_vec, chunks));
             }
+        }
+        // 2. Admit pages lexical search missed but the vectors place close to
+        // the query. Scored on the semantic term alone (there is no lexical
+        // score to add to), so a strong paraphrase can still reach the top-N.
+        for (id, chunks) in &store.pages {
+            if hits.iter().any(|h| &h.id == id) {
+                continue;
+            }
+            let sim = super::embeddings::best_similarity(query_vec, chunks);
+            if sim < SEMANTIC_MIN_COSINE {
+                continue;
+            }
+            let Some(p) = registry.pages.get(id) else {
+                continue; // store holds a page the registry no longer lists
+            };
+            hits.push(RecallHit {
+                id: id.clone(),
+                title: p.title.clone(),
+                page_type: p.page_type.clone(),
+                score: semantic_score(sim),
+                preview: p.excerpt.clone(),
+                layer: None,
+            });
         }
         hits.sort_by(|a, b| {
             b.score
@@ -290,6 +342,67 @@ mod tests {
         let p = v.page_path(id);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, body).unwrap();
+    }
+
+    /// Store with one vector per given page id (unit vectors, so cosine with
+    /// the query below is exactly the first component).
+    fn store_with(entries: &[(&str, f32)]) -> crate::vault::embeddings::EmbeddingStore {
+        let mut store = crate::vault::embeddings::EmbeddingStore {
+            model: "mock".into(),
+            pages: Default::default(),
+        };
+        for (id, cos) in entries {
+            store.pages.insert(
+                (*id).into(),
+                vec![vec![*cos, (1.0 - cos * cos).max(0.0).sqrt()]],
+            );
+        }
+        store
+    }
+
+    #[test]
+    fn semantic_candidates_admit_pages_lexical_search_missed() {
+        let (_t, v) = setup();
+        page(&v, "concepts/paraphrase", "# P\n\nunrelated words here\n");
+        let reg = rebuild_metadata(&v).unwrap();
+
+        // Query matches nothing lexically — "zeta" is in no field of the page.
+        let (plain, _) = recall_layered(&v, None, &reg, "zeta", 5);
+        assert!(plain.is_empty(), "no lexical hit to begin with");
+
+        let query = vec![1.0f32, 0.0];
+        let store = store_with(&[("concepts/paraphrase", 0.9)]);
+        let (hits, _) = recall_layered_semantic(&v, None, &reg, "zeta", 5, Some((&query, &store)));
+        assert_eq!(hits.len(), 1, "the semantic candidate was admitted");
+        assert_eq!(hits[0].id, "concepts/paraphrase");
+        assert!((hits[0].score - semantic_score(0.9)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn semantic_candidates_respect_the_cosine_floor() {
+        let (_t, v) = setup();
+        page(&v, "concepts/orthogonal", "# O\n\nunrelated words here\n");
+        let reg = rebuild_metadata(&v).unwrap();
+        let query = vec![1.0f32, 0.0];
+        // Just below SEMANTIC_MIN_COSINE -> stays out of the result set.
+        let store = store_with(&[("concepts/orthogonal", SEMANTIC_MIN_COSINE - 0.01)]);
+        let (hits, _) = recall_layered_semantic(&v, None, &reg, "zeta", 5, Some((&query, &store)));
+        assert!(hits.is_empty(), "near-orthogonal page must not be admitted");
+    }
+
+    #[test]
+    fn semantic_fusion_is_the_identity_without_a_signal() {
+        let (_t, v) = setup();
+        page(&v, "concepts/alpha", "# Alpha\n\nalpha body\n");
+        let reg = rebuild_metadata(&v).unwrap();
+        let query = vec![1.0f32, 0.0];
+        // cosine 0 for every stored page -> scores identical to pure lexical.
+        let store = store_with(&[("concepts/alpha", 0.0)]);
+        let (blended, _) =
+            recall_layered_semantic(&v, None, &reg, "alpha", 5, Some((&query, &store)));
+        let (plain, _) = recall_layered(&v, None, &reg, "alpha", 5);
+        assert_eq!(blended.len(), plain.len());
+        assert!((blended[0].score - plain[0].score).abs() < 1e-9);
     }
 
     #[test]

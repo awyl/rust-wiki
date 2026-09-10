@@ -127,7 +127,7 @@ below: `wiki_template`, `wiki_ensure_personal_page`,
 
 **Still unbuilt:** host screens (`/wiki-model`, `/wiki-settings`,
 `/wiki-dashboard` — dropped in the port), OKF Interchange (bundle
-import/export, trust scoring), semantic candidate retrieval.
+import/export, trust scoring), embeddings staleness skipping.
 
 ## Engine behaviors to port
 
@@ -297,18 +297,26 @@ feature off with a clean no-op from `wiki_reindex_embeddings`.
 - Writes stay cheap: every page write re-embeds that page's chunks only
   (`upsert_page`); `wiki_reindex_embeddings` rebuilds the whole space in
   bounded batches of 64 texts and returns the page count.
-- Blend: `wiki_recall` embeds the query (one call) when provider AND store
-  exist; score *= 1 + max(0, **best chunk** cosine) * 0.5, re-sorted. Best
-  chunk, not a page average, so one strongly relevant section is not diluted
-  by the rest of the page. No store or no provider -> pure lexical, silently.
-- **Known limitation (verified live 2026-09-10):** the semantic layer
-  re-ranks lexical hits only — it cannot surface a page that lexical search
-  missed. A query matching a chunk but no title/excerpt/link returns nothing.
-  Semantic candidate retrieval is the next step for this layer; trust-weighted
-  scoring remains future work.
-- Live verification (2026-09-10, aiproxy, 768 dims): a 6-section page stored
-  **6 chunk vectors**, a short page 1; a lexical query was boosted, a
-  semantic-only query returned no hits (the limitation above).
+- Blend (additive, not multiplicative — a page with no lexical score has
+  nothing to multiply, so only an additive term can admit it):
+  `score + 0.5 * 6.0 * max(0, best-chunk cosine)`. The lexical score keeps its
+  absolute scale and cosine <= 0 is the identity, so the pure-lexical path is
+  unchanged. `SEMANTIC_SCALE = 6.0` is calibrated against this engine's own
+  weights: a perfect semantic match (0.5 x 6.0 = 3.0) lands level with a title
+  hit (`W_TITLE = 3.0`), so it can reach the top-N but cannot outrank a real
+  title match by itself; a strong paraphrase (~0.84) is worth 2.5.
+- **Semantic candidates:** a page whose best-chunk cosine clears
+  `SEMANTIC_MIN_COSINE = 0.2` is admitted even with **no lexical match at all**,
+  scored on the semantic term alone. Before this the layer could only re-rank
+  lexical hits, so a query matching a page's body but none of its
+  title/id/type/excerpt returned nothing — verified live 2026-09-10 before and
+  after: `topic3word7` went from `[]` to `concepts/long-page 2.02`
+  (0.5 x 6.0 x 0.674), with the lexical and mixed queries ranking sensibly.
+  Candidates come from the space store; the personal layer keeps its lexical
+  path (a per-space store holds only that space's pages).
+- Staleness: `wiki_reindex_embeddings` has no content-hash check yet, so it
+  re-embeds every page (chunk count x pages); zosmaai skips unchanged pages by
+  comparing a stored content hash. Trust-weighted scoring remains future work.
 
 ## Working memory: trajectories + requirements (2026-09-09)
 
