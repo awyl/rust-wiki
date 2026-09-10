@@ -127,7 +127,7 @@ below: `wiki_template`, `wiki_ensure_personal_page`,
 
 **Still unbuilt:** host screens (`/wiki-model`, `/wiki-settings`,
 `/wiki-dashboard` — dropped in the port), OKF Interchange (bundle
-import/export, trust scoring), chunk-level embedding vectors.
+import/export, trust scoring), semantic candidate retrieval.
 
 ## Engine behaviors to port
 
@@ -287,12 +287,28 @@ feature off with a clean no-op from `wiki_reindex_embeddings`.
 - Client timeout 180s: a self-hosted model can take ~54s to answer the
   first, cold call (warm ~12ms). Verified live 2026-09-10 against aiproxy
   `embeddings-local/nomic-embed-text-v1.5` (768 dims, HTTP 200).
-- Store: `meta/embeddings.json` — `{model, pages: {id: [f32]}}`, one
-  vector per page over title+id+excerpt.
-- Blend: `wiki_recall` embeds the query (one call) when provider AND
-  store exist; score *= 1 + max(0, cosine) * 0.5, re-sorted. No store or
-  no provider -> pure lexical, silently.
-- Chunk-level vectors and trust-weighted scoring remain future work.
+- Store: `meta/embeddings.json` — `{model, pages: {id: [[f32]]}}`: one
+  vector per **chunk** of the page body (target 800 chars, packed by
+  paragraph, hard-split if a paragraph is longer, capped at 24 chunks per
+  page). Each chunk carries the page title so a bare chunk still has
+  context. Frontmatter is never embedded. The per-page ceiling bounds the
+  cost of a very long page — raise it, or add a vector index, only if long
+  pages start losing real content.
+- Writes stay cheap: every page write re-embeds that page's chunks only
+  (`upsert_page`); `wiki_reindex_embeddings` rebuilds the whole space in
+  bounded batches of 64 texts and returns the page count.
+- Blend: `wiki_recall` embeds the query (one call) when provider AND store
+  exist; score *= 1 + max(0, **best chunk** cosine) * 0.5, re-sorted. Best
+  chunk, not a page average, so one strongly relevant section is not diluted
+  by the rest of the page. No store or no provider -> pure lexical, silently.
+- **Known limitation (verified live 2026-09-10):** the semantic layer
+  re-ranks lexical hits only — it cannot surface a page that lexical search
+  missed. A query matching a chunk but no title/excerpt/link returns nothing.
+  Semantic candidate retrieval is the next step for this layer; trust-weighted
+  scoring remains future work.
+- Live verification (2026-09-10, aiproxy, 768 dims): a 6-section page stored
+  **6 chunk vectors**, a short page 1; a lexical query was boosted, a
+  semantic-only query returned no hits (the limitation above).
 
 ## Working memory: trajectories + requirements (2026-09-09)
 

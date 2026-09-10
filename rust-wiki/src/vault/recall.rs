@@ -208,7 +208,8 @@ pub fn recall_layered(
 }
 
 /// Like `recall_layered`, but blends semantic similarity when a query
-/// embedding is supplied: score *= 1 + max(0, cosine) * 0.5, then re-sorts.
+/// embedding is supplied: score *= 1 + max(0, best chunk cosine) * 0.5,
+/// then re-sorts.
 pub fn recall_layered_semantic(
     space_vault: &VaultPaths,
     personal_vault: Option<&VaultPaths>,
@@ -238,8 +239,8 @@ pub fn recall_layered_semantic(
     hits.truncate(max_results as usize);
     if let Some((query_vec, store)) = semantic {
         for h in &mut hits {
-            if let Some(vec) = store.pages.get(&h.id) {
-                let sim = super::embeddings::cosine(query_vec, vec);
+            if let Some(chunks) = store.pages.get(&h.id) {
+                let sim = super::embeddings::best_similarity(query_vec, chunks);
                 if sim > 0.0 {
                     h.score *= 1.0 + f64::from(sim) * 0.5;
                 }
@@ -350,11 +351,11 @@ mod tests {
         };
         store.pages.insert(
             "concepts/vector-friendly".into(),
-            vec![1.0f32, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            vec![vec![1.0f32, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
         );
         store.pages.insert(
             "concepts/vector-distant".into(),
-            vec![0.0f32, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            vec![vec![0.0f32, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
         );
 
         let (boosted, _) =

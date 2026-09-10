@@ -758,7 +758,7 @@ mod tests {
             .unwrap()
             .pop()
             .unwrap();
-        store.pages.insert(e.id.clone(), v);
+        store.pages.insert(e.id.clone(), vec![v]);
         let vp = crate::vault::layout::VaultPaths::new(&h.root, "proj");
         store.save(&vp).unwrap();
 

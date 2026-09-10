@@ -2,6 +2,9 @@
 //! endpoint. Server config is env-only (WIKI_EMBEDDING_URL /
 //! WIKI_EMBEDDING_MODEL / WIKI_EMBEDDING_TOKEN). Without a provider the
 //! feature is a clean no-op and recall stays purely lexical.
+//!
+//! Vectors are per **chunk**, not per page: a long page's score is its
+//! best-matching chunk, so unrelated sections cannot dilute it.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -83,10 +86,97 @@ pub fn from_env() -> Option<Box<dyn Embedder>> {
     Some(Box::new(HttpEmbedder { url, model, token }))
 }
 
+/// Target chunk size in chars: a few paragraphs. Large enough to carry one
+/// complete idea, small enough that sections do not average each other out.
+pub const CHUNK_CHARS: usize = 800;
+/// Per-page chunk ceiling: bounds the embedding cost of a very long page.
+/// ponytail: flat cap — raise it (or add a vector index) only if long pages
+/// start losing real content.
+pub const MAX_CHUNKS: usize = 24;
+/// Bounded provider batch: a full vault must not become one huge request.
+pub const EMBED_BATCH: usize = 64;
+
+/// Split a page body into embedding chunks: paragraphs packed up to
+/// `CHUNK_CHARS`, each prefixed with the page title so a bare chunk still
+/// carries context. An empty body yields no chunks.
+pub fn chunk_text(title: &str, body: &str) -> Vec<String> {
+    let mut packed: Vec<String> = Vec::new();
+    let mut buf = String::new();
+    for para in body.split("\n\n") {
+        let para = para.trim();
+        if para.is_empty() {
+            continue;
+        }
+        for piece in hard_split(para, CHUNK_CHARS) {
+            let over =
+                !buf.is_empty() && buf.chars().count() + piece.chars().count() + 2 > CHUNK_CHARS;
+            if over {
+                packed.push(std::mem::take(&mut buf));
+                if packed.len() >= MAX_CHUNKS {
+                    break;
+                }
+            }
+            if !buf.is_empty() {
+                buf.push_str("\n\n");
+            }
+            buf.push_str(&piece);
+        }
+        if packed.len() >= MAX_CHUNKS {
+            break;
+        }
+    }
+    if !buf.is_empty() && packed.len() < MAX_CHUNKS {
+        packed.push(buf);
+    }
+    packed
+        .into_iter()
+        .map(|c| format!("{title}\n\n{c}"))
+        .collect()
+}
+
+/// Split an oversized paragraph at char boundaries so no chunk exceeds `max`.
+fn hard_split(text: &str, max: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut n = 0;
+    for ch in text.chars() {
+        cur.push(ch);
+        n += 1;
+        if n >= max {
+            out.push(std::mem::take(&mut cur));
+            n = 0;
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// Page body with the frontmatter block removed (the whole text when absent).
+fn body_of(raw: &str) -> &str {
+    super::frontmatter::split_block(raw)
+        .map(|(_, body)| body)
+        .unwrap_or(raw)
+}
+
+/// Chunks for one page: its body from disk (frontmatter stripped), falling
+/// back to the registry excerpt when the file cannot be read. The semantic
+/// layer is best-effort — it never fails a write or a reindex.
+pub fn page_chunks(vault: &VaultPaths, id: &str, title: &str, excerpt: &str) -> Vec<String> {
+    let raw = fs::read_to_string(vault.page_path(id)).ok();
+    let body = match &raw {
+        Some(raw) => body_of(raw),
+        None => excerpt,
+    };
+    chunk_text(title, body)
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct EmbeddingStore {
     pub model: String,
-    pub pages: BTreeMap<String, Vec<f32>>,
+    /// Page id -> one vector per chunk of its body.
+    pub pages: BTreeMap<String, Vec<Vec<f32>>>,
 }
 
 impl EmbeddingStore {
@@ -123,14 +213,14 @@ pub fn upsert_page(vault: &VaultPaths, registry: &Registry, embedder: &dyn Embed
     let Some(p) = registry.pages.get(id) else {
         return;
     };
-    let text = format!("{}\n{}\n{}", p.title, p.id, p.excerpt);
-    let Ok(mut vectors) = embedder.embed(&[text]) else {
+    let chunks = page_chunks(vault, id, &p.title, &p.excerpt);
+    if chunks.is_empty() {
+        return;
+    }
+    let Ok(vectors) = embedder.embed(&chunks) else {
         return;
     };
-    let Some(vector) = vectors.pop() else {
-        return;
-    };
-    store.pages.insert(id.to_string(), vector);
+    store.pages.insert(id.to_string(), vectors);
     let _ = store.save(vault);
 }
 
@@ -138,37 +228,41 @@ pub fn embeddings_path(vault: &VaultPaths) -> std::path::PathBuf {
     vault.meta().join("embeddings.json")
 }
 
-/// Re-embed every page in the registry. Returns count embedded.
+/// Re-embed every page in the registry, chunk by chunk.
+/// Returns the number of pages that ended up with at least one vector.
 pub fn reindex(
     vault: &VaultPaths,
     registry: &Registry,
     embedder: &dyn Embedder,
 ) -> Result<usize, String> {
-    let ids: Vec<&str> = registry.pages.keys().map(|s| s.as_str()).collect();
-    if ids.is_empty() {
-        // still persist an empty store so recall knows embeddings exist
-        EmbeddingStore {
-            model: embedder.model().to_string(),
-            pages: Default::default(),
-        }
-        .save(vault)?;
-        return Ok(0);
-    }
-    let texts: Vec<String> = ids
-        .iter()
-        .map(|id| {
-            let p = registry.pages.get(*id).expect("id from registry");
-            format!("{}\n{}\n{}", p.title, p.id, p.excerpt)
-        })
-        .collect();
-    let vectors = embedder.embed(&texts)?;
     let mut store = EmbeddingStore {
         model: embedder.model().to_string(),
         pages: Default::default(),
     };
-    for (id, vec) in ids.into_iter().zip(vectors) {
-        store.pages.insert(id.to_string(), vec);
+    // One flat batch across every page (BTreeMap order = deterministic),
+    // embedded in bounded windows so a large vault cannot send one enormous
+    // request. `owners` maps each text back to its page id.
+    let mut owners: Vec<&str> = Vec::new();
+    let mut texts: Vec<String> = Vec::new();
+    for (id, page) in &registry.pages {
+        for chunk in page_chunks(vault, id, &page.title, &page.excerpt) {
+            owners.push(id.as_str());
+            texts.push(chunk);
+        }
     }
+    for start in (0..texts.len()).step_by(EMBED_BATCH) {
+        let end = usize::min(start + EMBED_BATCH, texts.len());
+        let vectors = embedder.embed(&texts[start..end])?;
+        for (owner, vector) in owners[start..end].iter().zip(vectors) {
+            store
+                .pages
+                .entry((*owner).to_string())
+                .or_default()
+                .push(vector);
+        }
+    }
+    // Persist even when nothing was embeddable, so recall can tell
+    // "semantic ran, found nothing" apart from "no store at all".
     store.save(vault)?;
     Ok(store.pages.len())
 }
@@ -186,6 +280,15 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
     } else {
         dot / (na * nb)
     }
+}
+
+/// A page's semantic score is its best-matching chunk: one strongly relevant
+/// section beats an average over the whole page.
+pub fn best_similarity(query: &[f32], chunks: &[Vec<f32>]) -> f32 {
+    chunks
+        .iter()
+        .map(|c| cosine(query, c))
+        .fold(0.0f32, f32::max)
 }
 
 #[cfg(test)]
@@ -271,5 +374,91 @@ mod tests {
         assert!((cosine(&[1.0, 0.0], &[0.0, 1.0])).abs() < 1e-6);
         assert_eq!(cosine(&[], &[1.0]), 0.0);
         assert_eq!(cosine(&[1.0], &[1.0, 2.0]), 0.0);
+    }
+
+    #[test]
+    fn long_bodies_split_and_stay_capped() {
+        let para = "lorem ipsum dolor sit amet ".repeat(20);
+        let body = (0..40)
+            .map(|_| para.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let chunks = chunk_text("Big page", &body);
+        assert!(chunks.len() > 1, "a long body must split");
+        assert_eq!(chunks.len(), MAX_CHUNKS, "stops at the per-page ceiling");
+        for c in &chunks {
+            assert!(c.starts_with("Big page"), "every chunk carries the title");
+            assert!(
+                c.chars().count() <= CHUNK_CHARS + "Big page\n\n".len() + 2,
+                "chunk exceeded the target size: {}",
+                c.chars().count()
+            );
+        }
+        assert!(
+            chunk_text("Empty", "   \n\n  ").is_empty(),
+            "no body, no chunks"
+        );
+    }
+
+    #[test]
+    fn page_chunks_strip_frontmatter_and_fall_back_to_the_excerpt() {
+        let (_t, v, reg) = setup();
+
+        // No file on disk -> the excerpt keeps the semantic layer working.
+        let chunks = page_chunks(&v, "concepts/retrieval", "retrieval", "excerpt fallback");
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].contains("excerpt fallback"));
+
+        // A real file -> frontmatter is never embedded, body is chunked.
+        let path = v.page_path("concepts/retrieval");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            format!(
+                "---\ntitle: retrieval\ntype: concept\n---\n\n{}",
+                "grounding ".repeat(300)
+            ),
+        )
+        .unwrap();
+        let chunks = page_chunks(&v, "concepts/retrieval", "retrieval", "excerpt fallback");
+        assert!(chunks.len() > 1, "a long body yields several chunks");
+        assert!(
+            !chunks[0].contains("title: retrieval"),
+            "frontmatter must not be embedded"
+        );
+        assert_eq!(reg.pages.len(), 2);
+    }
+
+    #[test]
+    fn reindex_stores_one_vector_per_chunk() {
+        let (_t, v, reg) = setup();
+        let path = v.page_path("concepts/retrieval");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            format!("---\ntitle: retrieval\n---\n\n{}", "grounding ".repeat(300)),
+        )
+        .unwrap();
+
+        let n = reindex(&v, &reg, &MockEmbedder).unwrap();
+        assert_eq!(n, 2, "both pages got vectors");
+        let store = EmbeddingStore::load(&v).unwrap();
+        assert!(
+            store.pages["concepts/retrieval"].len() > 1,
+            "long page -> several chunk vectors"
+        );
+        assert_eq!(
+            store.pages["concepts/quota"].len(),
+            1,
+            "short page -> a single chunk"
+        );
+    }
+
+    #[test]
+    fn best_similarity_takes_the_best_chunk() {
+        let query = vec![1.0f32, 0.0];
+        let chunks = vec![vec![0.0f32, 1.0], vec![1.0f32, 0.0]];
+        assert!((best_similarity(&query, &chunks) - 1.0).abs() < 1e-6);
+        assert_eq!(best_similarity(&query, &[]), 0.0);
     }
 }
