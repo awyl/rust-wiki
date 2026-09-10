@@ -36,7 +36,9 @@ pi install /work
 
 Optional `<project>/.pi/llm-wiki.json` (absent = defaults). `//` and
 `/* */` comments are allowed — they are stripped before parsing, and a `//`
-inside a value (a URL, say) is left alone:
+inside a value (a URL, say) is left alone. A commented example with every
+key at its default ships as [`llm-wiki.example.json`](./llm-wiki.example.json)
+in the repo root; it is not read, copy it into place:
 
 ```json
 {

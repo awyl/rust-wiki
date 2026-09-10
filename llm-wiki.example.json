@@ -1,0 +1,82 @@
+// pi-rust-wiki autopilot — example config, every key at its built-in default.
+//
+// THIS FILE IS NOT READ. It shows what you can set and where it goes — copy it
+// to whichever layer you want:
+//
+//   <project>/.pi/llm-wiki.json     project layer (this project only)
+//   ~/.pi/agent/llm-wiki.json       global layer (every project)
+//
+// Precedence, per key:  project  →  global  →  built-in default.
+// A layer only has to hold the keys it changes; unknown keys are ignored.
+//
+// `//` and `/* */` comments are allowed (stripped before parsing), and a `//`
+// inside a value such as a URL is left untouched.
+{
+  // Call wiki_use_space / wiki_bootstrap mechanically on the first user
+  // message (no model involved, sub-second). Off = the agent must set the
+  // space itself.
+  "bootstrap": true,
+
+  // Session-static system-prompt footer that scopes the agent to this
+  // project's wiki space and points it at the research/retro skills.
+  // Byte-identical all session, so it never breaks the prompt cache.
+  "researchNudge": true,
+
+  // Per-turn wiki_recall injection: hits scoring >= 2.0 ride a hidden
+  // conversation message so the agent sees relevant pages unprompted.
+  // Never touches the system prompt. Personal-layer hits excluded, max 3,
+  // and the same prompt is never injected twice.
+  "autoInject": false,
+
+  // Render directive text in the UI. false = directives reach the agent
+  // silently (you still get the one-line completion notices).
+  "display": false,
+
+  // MCP endpoint used for the mechanical bootstrap calls.
+  // Default = the aiproxy-hosted rust-wiki. For a standalone local server
+  // use "http://host.containers.internal:8484/mcp".
+  "wikiMcpUrl": "http://host.containers.internal:9999/mcp/wiki",
+
+  // Bearer token for that endpoint. DELIBERATELY LEFT UNSET here: the built-in
+  // default already resolves $WIKI_TOKEN, falling back to $AIPROXY_TOKEN — and
+  // any value written in a config file wins over those env vars, including "".
+  // Set it only to pin a fixed token:  "wikiMcpToken": "…",
+
+  // ── Retro: distill finished sessions into the wiki ──────────────────────
+  "retro": {
+    // Master switch for the retro worker.
+    "enabled": true,
+
+    // One retro worker every N settled agent runs.
+    "everyNRuns": 8,
+
+    // true = fire at most once per session. false = re-arm after each fire.
+    "oncePerSession": false,
+
+    // Skip windows with fewer than N file-mutating (edit/write) tool calls.
+    // 0 = every window fires and the worker judges triviality from the
+    // session transcript instead (recommended).
+    "minMutatingCalls": 0
+  },
+
+  // ── Discovery: find OUTSIDE sources the sessions never captured ─────────
+  // On by default. Captures real sources and writes real pages; set
+  // `enabled: false` to switch it off.
+  "discover": {
+    // Master switch.
+    "enabled": true,
+
+    // One discovery pass every N settled agent runs.
+    "everyNRuns": 24,
+
+    // Seed topics. Empty = work the vault's own gaps (missing pages, thin
+    // coverage). Every topic must link to an existing page or it is skipped.
+    "topics": [],
+
+    // Hard cap on sources captured per run.
+    "maxCaptures": 3,
+
+    // true = report what WOULD be captured and write nothing.
+    "dryRun": false
+  }
+}
