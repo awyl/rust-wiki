@@ -1,6 +1,8 @@
 # rust-wiki — remote zosmaai-style wiki MCP server (design spec)
 
-**Date:** 2026-09-06 · **Status:** approved direction, pre-implementation
+**Date:** 2026-09-06 · **Status:** shipped — server v0.6.1 (2026-09-10).
+Sections below are dated as each landed; the v1 design text is kept for
+context, superseded where a dated section says otherwise.
 **Replaces:** zosmaai/pi-llm-wiki + its 17 vendored skills (full cutover, no coexistence)
 
 ## Decision context (2026-09-06)
@@ -51,8 +53,9 @@ serving N spaces:
 ```
 VAULT_ROOT/                  # default: <exe_dir>/vaults, override: WIKI_VAULT_ROOT
 ├── <space-name>/            # one space = one flattened zosmaai-style vault (below)
-├── personal/                # reserved cross-project layer (auto-created at boot)
-└── config.toml              # server config (minimal)
+└── personal/                # reserved cross-project layer (auto-created at boot)
+
+<exe_dir>/config.toml        # server config, next to the binary (see Server config)
 ```
 
 Vault layout per space (flattened — no .llm-wiki nesting; change approved 2026-09-07):
@@ -61,13 +64,17 @@ Vault layout per space (flattened — no .llm-wiki nesting; change approved 2026
 <space-name>/
 ├── config.json              # vault config
 ├── templates/               # page templates
-├── raw/sources/SRC-*/       # immutable source packets (extension-owned)
+├── raw/sources/SRC-*/       # immutable source packets (agent-captured)
+├── raw/trajectories/TRJ-*/  # immutable trajectory packets
 ├── wiki/                    # editable knowledge pages
 │   ├── sources/             # one summary per source
 │   ├── entities/            # people, orgs, tools, products
 │   ├── concepts/            # ideas, patterns, frameworks
 │   ├── syntheses/           # cross-cutting analyses
-│   └── analyses/            # durable query answers
+│   ├── analyses/            # durable query answers
+│   ├── requirements/        # requirement lifecycle pages
+│   ├── skills/              # distilled skills
+│   └── cases/               # trajectory case pages
 ├── meta/                    # events + generated projections
 │   ├── registry.json        # master page catalog
 │   ├── backlinks.json       # inbound link map
@@ -91,9 +98,9 @@ agent+user editable. Writes outside `wiki/**` are rejected.
    active-space hits (priority) + `personal` hits (labeled), dedup by page
    ID — direct port of zosmaai's layered recall, server-side.
 
-## Tool surface (v1 — 15 tools)
+## Tool surface (23 tools)
 
-Adapted from zosmaai's 14; semantics preserved:
+The original v1 surface (15) adapted from zosmaai's 14; semantics preserved:
 
 | Tool | Notes for remote adaptation |
 |---|---|
@@ -113,8 +120,15 @@ Adapted from zosmaai's 14; semantics preserved:
 | `wiki_rebuild_meta` | full projection rebuild (synchronous) |
 | `wiki_log_event` | append to `events.jsonl` |
 
-**Deferred (v2+):** embeddings, trajectory trio (working memory),
-`wiki_watch`, OKF v0.2 projections, Obsidian integration.
+Shipped after v1 — all live as of v0.6.1, described in the dated sections
+below: `wiki_template`, `wiki_ensure_personal_page`,
+`wiki_write_personal_page`, `wiki_watch`, `wiki_reindex_embeddings`,
+`wiki_capture_trajectory`, `wiki_distill_skills`, `wiki_recall_skill`.
+
+**Still unbuilt:** host screens (`/wiki-model`, `/wiki-settings`,
+`/wiki-dashboard` — dropped in the port), scheduled discovery (manual
+`/wiki-discover` only), OKF Interchange (bundle import/export, trust
+scoring), chunk-level embedding vectors.
 
 ## Engine behaviors to port
 
@@ -156,11 +170,29 @@ templates.
 
 ## Server config + ops
 
-`config.toml` next to the binary: `port` (default chosen at impl),
-`vault_root` (default `<exe_dir>/vaults`), env override `WIKI_VAULT_ROOT`.
-No auth (trusted network binding). Logging: tracing to stdout. Deploy:
-same container host as the legacy engine it replaces; agents' MCP
-configs repoint at it; legacy containers decommissioned at cutover.
+One labeled key per knob, single precedence per key: **environment →
+`<exe_dir>/config.toml` → default** (2026-09-10). Every key is settable in
+the file and overridable per key by env; `config.toml.example` labels each.
+
+| Key | Env | Default |
+|---|---|---|
+| `port` | `WIKI_PORT` | `8484` |
+| `vault_root` | `WIKI_VAULT_ROOT` | `<exe_dir>/vaults` |
+| `cron_interval_secs` | `WIKI_CRON_INTERVAL_SECS` | `3600` (0 = off) |
+| `embedding_url` | `WIKI_EMBEDDING_URL` | unset (feature off) |
+| `embedding_model` | `WIKI_EMBEDDING_MODEL` | `text-embedding-3-small` |
+| `embedding_token` | `WIKI_EMBEDDING_TOKEN` | unset |
+| `recall_links_first_threshold` | `WIKI_RECALL_LINKS_FIRST_THRESHOLD` | `50` |
+| `git_interval_secs` | `WIKI_GIT_INTERVAL_SECS` | `60` (0 = off) |
+| `git_idle_secs` | `WIKI_GIT_IDLE_SECS` | `300` |
+
+No auth (trusted network binding). Diagnostics go to **stderr** — in the
+default stdio transport stdout carries protocol only. The binary logs
+`rust-wiki v<version>` at boot and `wiki_status` reports `server_version`,
+so a deploy is verifiable from the log or a tool call (2026-09-10). Deploy:
+same container host as the legacy engine it replaces; agents' MCP configs
+repoint at it. Note: replacing the binary is not enough — the running MCP
+server process must restart to pick it up.
 
 ## Testing
 
@@ -170,6 +202,9 @@ wikilink gate, MCP parity across connections, space isolation (no
 cross-space leakage). Mechanical core target ~85% coverage like upstream.
 
 ## Implementation outline
+
+All five milestones landed (v0.5.x → v0.6.0, 2026-09-07 … 2026-09-09).
+Kept as the original plan of record:
 
 1. **M1 — vault core:** vault layout, bootstrap, config, templates,
    registry + projections, guardrails. Crate-internal tests.
@@ -223,10 +258,10 @@ Frontmatter, links, identity (2026-09-07, hardened full support):
 The server owns the clock — no crontab, no human steps, no daemon
 process. At startup it arms a background thread running a mechanical
 maintenance cycle (lint + auto_fix + status) across every bootstrapped
-space. Default interval: hourly; `WIKI_CRON_INTERVAL_SECS` tunes it,
-`0` disables. Chose a plain thread over the `cron_tab` crate: fixed
-interval covers the need, cron expressions are machinery we don't
-need (KISS/YAGNI).
+space. Default interval: hourly; `cron_interval_secs` in `config.toml` or
+`WIKI_CRON_INTERVAL_SECS` tunes it, `0` disables. Chose a plain thread over
+the `cron_tab` crate: fixed interval covers the need, cron expressions are
+machinery we don't need (KISS/YAGNI).
 
 - `wiki_watch` (MCP, no args) -> scheduler status `{enabled, interval_secs}`.
 - `wiki_watch {run: true}` -> immediate all-spaces cycle, returns reports.
@@ -244,10 +279,15 @@ Obsidian creates its own config on first open.
 
 Optional semantic layer over the lexical engine:
 
-- Provider: OpenAI-compatible `POST {WIKI_EMBEDDING_URL}/embeddings`
-  with `WIKI_EMBEDDING_MODEL` (+ optional `WIKI_EMBEDDING_TOKEN`).
-  Configured via env only; absent = feature off with a clean no-op from
-  `wiki_reindex_embeddings`.
+- Provider: any OpenAI-compatible embeddings endpoint. `embedding_url` is
+the **full endpoint** — the server POSTs to it verbatim and does not
+append `/embeddings`, so configure e.g. `http://host/v1/embeddings`.
+Settable in `config.toml` or via `WIKI_EMBEDDING_URL` +
+`WIKI_EMBEDDING_MODEL` (+ optional `WIKI_EMBEDDING_TOKEN`); absent =
+feature off with a clean no-op from `wiki_reindex_embeddings`.
+- Client timeout 180s: a self-hosted model can take ~54s to answer the
+  first, cold call (warm ~12ms). Verified live 2026-09-10 against aiproxy
+  `embeddings-local/nomic-embed-text-v1.5` (768 dims, HTTP 200).
 - Store: `meta/embeddings.json` — `{model, pages: {id: [f32]}}`, one
   vector per page over title+id+excerpt.
 - Blend: `wiki_recall` embeds the query (one call) when provider AND
@@ -255,7 +295,42 @@ Optional semantic layer over the lexical engine:
   no provider -> pure lexical, silently.
 - Chunk-level vectors and trust-weighted scoring remain future work.
 
-## Non-goals (v1)
+## Working memory: trajectories + requirements (2026-09-09)
 
-Auth, trajectories/working-memory (deferred again 2026-09-07),
-multi-user/quotas, data migration.
+- `wiki_capture_trajectory` writes an immutable packet under
+  `raw/trajectories/TRJ-*` plus a skeleton `cases/` page. **Steps are
+  caller-supplied** — the server never sees a live session.
+- `wiki_distill_skills` lists undistilled trajectories and marks them
+  distilled; `wiki_recall_skill` searches skill/case pages.
+- Page types `requirement`, `skill` and `case` extend `PAGE_TYPES` with
+  their own directories and templates. Requirements carry lifecycle
+  frontmatter (`status`, `priority`, `source_id`, `depends_on`).
+
+## OKF rollout and migration (2026-09-10)
+
+- New spaces bootstrap as `okf-0.2`. Legacy spaces upgrade with
+  `rust-wiki migrate-okf --space <name>`.
+- `okf::migrate()` sets `knowledge_format` (every other config key
+  preserved) and regenerates all projections. Idempotent. It **refuses**
+rather than overwrite a hand-written page sitting at a generated path
+  (`wiki/index.md`, `wiki/log.md`, `wiki/*/index.md`), listing the clashes.
+  Config is written temp+rename so overlapping boots cannot tear it.
+- `okf::migrate_all()` also runs in `boot()`, so a deploy upgrades vaults
+  with no manual step. That boot-time bridge is temporary and marked
+  `ponytail:` for later removal.
+- Empty OKF vaults keep their root `wiki/index.md`; only per-directory
+  indexes are pruned when a directory loses its concepts.
+
+## Page-type resolution (fixed 2026-09-10)
+
+A page without a `type:` frontmatter field takes its type from the
+directory via `PAGE_TYPES`. The previous naive "strip the trailing `s`"
+fallback produced `analyse` / `entitie` / `synthese` for `analyses` /
+`entities` / `syntheses`, skewing status counts and type-filtered search.
+Unknown directories keep the naive fallback.
+
+## Non-goals
+
+Auth, multi-user/quotas, data migration (hard cutover — no path from the
+legacy engine). Trajectories/working-memory were deferred twice and then
+**shipped 2026-09-09**; see *Working memory* above.
