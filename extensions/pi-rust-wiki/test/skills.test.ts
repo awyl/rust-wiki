@@ -53,4 +53,16 @@ describe("vendored skills", () => {
       expect(md).not.toContain("trajectories parked");
     }
   });
+
+  it("worker prompts are separate: retro records, discover finds sources", () => {
+    const workersDir = fileURLToPath(new URL("../llm-wiki-skills", import.meta.url));
+    const retro = readFileSync(`${workersDir}/worker-retro.md`, "utf-8");
+    const discover = readFileSync(`${workersDir}/worker-discover.md`, "utf-8");
+    // One owner per job: retro no longer runs a discover pass.
+    expect(retro).not.toMatch(/bounded discover/i);
+    expect(retro).toContain("RETRO DONE");
+    expect(discover).toContain("DISCOVER DONE");
+    expect(discover).toContain("wiki_capture_source");
+    expect(discover).toContain("wiki_lint");
+  });
 });

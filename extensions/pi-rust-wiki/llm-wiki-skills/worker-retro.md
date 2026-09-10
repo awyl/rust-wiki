@@ -36,21 +36,21 @@ distinct findings into multiple calls.
    - New structured page → `wiki_ensure_page` (type: concept | entity |
      synthesis | analysis | requirement) with real content — never leave
      template stubs.
+   - **Entities (zosmaai parity):** one `wiki_ensure_page(type="entity")` per
+     named person, organization, tool, or product the session worked with —
+     a session that used a library, service, or vendor should leave a page
+     for it. Link each entity to the page it appeared in. Enumerate them; the
+     vault is thin on entities because sessions name tools without giving
+     them pages.
    - Updates → `wiki_read_page` then `wiki_write_page` with the full
      edited document (frontmatter fence preserved — fenceless writes are
      rejected).
    - Cross-link generously: `[label](/folder/page.md)` to pages you
      created or that already exist (check with `wiki_search`).
-4. Bounded discover (only if the session left nothing durable AND the
-   launch allows it): pick ONE topic adjacent to existing pages, search
-   with the available MCP web-search tools (never a bare model guess),
-   capture at most 3 sources (`wiki_capture_source`), synthesize
-   entities/concepts. Every captured topic must link to an existing page
-   — no linkable anchor, no capture.
-5. Quality gate: call `wiki_lint` with `auto_fix: true`. Fix what it
+4. Quality gate: call `wiki_lint` with `auto_fix: true`. Fix what it
    reports (orphans get links, missing pages get stubs + content).
-6. Verify: `wiki_status` — health must not be "empty".
-7. Finish with exactly one line on stdout (the extension parses it):
+5. Verify: `wiki_status` — health must not be "empty".
+6. Finish with exactly one line on stdout (the extension parses it):
    `RETRO DONE pages=<n> [<ids>]`
    Nothing else reports back — no messages, no follow-ups. The UI notice
    is the extension's job.
@@ -58,6 +58,8 @@ distinct findings into multiple calls.
 ## Rules
 
 - AUTO-WRITE: pages are written directly, no confirmation (unattended).
+- Wiki knowledge only — web discovery is the separate discover worker's
+  job (worker-discover.md), never this one's.
 - Preserve specifics: file paths, error strings, commit hashes, config
   values. Facts over prose.
 - If the evidence shows a trivial session, print `RETRO DONE pages=0` and stop.

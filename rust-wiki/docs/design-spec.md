@@ -126,9 +126,8 @@ below: `wiki_template`, `wiki_ensure_personal_page`,
 `wiki_capture_trajectory`, `wiki_distill_skills`, `wiki_recall_skill`.
 
 **Still unbuilt:** host screens (`/wiki-model`, `/wiki-settings`,
-`/wiki-dashboard` — dropped in the port), scheduled discovery (manual
-`/wiki-discover` only), OKF Interchange (bundle import/export, trust
-scoring), chunk-level embedding vectors.
+`/wiki-dashboard` — dropped in the port), OKF Interchange (bundle
+import/export, trust scoring), chunk-level embedding vectors.
 
 ## Engine behaviors to port
 
@@ -322,6 +321,28 @@ directory via `PAGE_TYPES`. The previous naive "strip the trailing `s`"
 fallback produced `analyse` / `entitie` / `synthese` for `analyses` /
 `entities` / `syntheses`, skewing status counts and type-filtered search.
 Unknown directories keep the naive fallback.
+
+## Background workers (extension, 2026-09-10)
+
+Two unattended workers run outside the main session's context (detached
+`pi -p`, `LLM_WIKI_AUTOPILOT_DISABLE=1`, completion surfaced as a UI notice
+and written to a log; **all completion notices go through a guarded
+`notify()`** because `ctx.ui` throws once the session is replaced and a
+re-throw from the catch handler takes pi down).
+
+- **Retro** (`worker-retro.md`) — every 8 settled runs: distills the session
+  into wiki pages, judging non-triviality from the transcript tail.
+- **Discovery** (`worker-discover.md`) — every 24 settled runs, **on by
+  default**: picks ONE gap-linked topic, searches with the MCP web tools,
+  skips URLs already captured, captures up to `maxCaptures` (3), then
+  synthesizes source + concept + **entity** pages (one per named person,
+  organization, tool, or product — the zosmaai entity behaviour).
+  `dryRun: true` reports without writing; `discover.enabled: false` turns it
+  off. Shares a single-flight guard with retro.
+
+Worker logs are **appended** to `/tmp/llm-wiki-<kind>-<space>.log` with a
+`=== run <timestamp> ===` header — truncating raced when two runs shared a
+path and overwrote each other's report.
 
 ## Non-goals
 

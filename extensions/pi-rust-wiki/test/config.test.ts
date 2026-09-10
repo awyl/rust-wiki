@@ -45,9 +45,8 @@ describe("loadConfig", () => {
         everyNRuns: 3,
         oncePerSession: false,
         minMutatingCalls: 0,
-        discover: true,
-        maxDiscoverCaptures: 3,
       },
+      discover: { enabled: true, everyNRuns: 24, topics: [], maxCaptures: 3, dryRun: false },
     });
   });
 
@@ -86,10 +85,52 @@ describe("loadConfig", () => {
         everyNRuns: 2,
         oncePerSession: false,
         minMutatingCalls: 0,
-        discover: true,
-        maxDiscoverCaptures: 3,
       },
+      discover: { enabled: true, everyNRuns: 24, topics: [], maxCaptures: 3, dryRun: false },
     });
+  });
+
+  it("reads the discover block and drops non-string topics", () => {
+    write(
+      JSON.stringify({
+        discover: { enabled: true, everyNRuns: 5, topics: ["rust", 7, "", "embeddings"], maxCaptures: 1, dryRun: true },
+      }),
+    );
+    const { config } = loadConfig(dir);
+    expect(config.discover).toEqual({
+      enabled: true,
+      everyNRuns: 5,
+      topics: ["rust", "embeddings"],
+      maxCaptures: 1,
+      dryRun: true,
+    });
+  });
+
+  it("discovery defaults on, and a layer can turn it off", () => {
+    expect(DEFAULT_CONFIG.discover.enabled).toBe(true);
+    write(JSON.stringify({ retro: { everyNRuns: 2 } }));
+    expect(loadConfig(dir).config.discover.enabled).toBe(true);
+  });
+
+  it("accepts inline comments but keeps // inside values", () => {
+    write(`{
+  // documented config
+  "bootstrap": false, /* keep serving */
+  "wikiMcpUrl": "http://host.containers.internal:8484/mcp"
+}
+`);
+    const { config, warning } = loadConfig(dir);
+    expect(warning).toBeUndefined();
+    expect(config.bootstrap).toBe(false);
+    // the URL keeps its double slash — the stripper is string-aware
+    expect(config.wikiMcpUrl).toBe("http://host.containers.internal:8484/mcp");
+  });
+
+  it("a comment cannot hide a real syntax error", () => {
+    write(`{ "bootstrap": false,, } // trailing junk`);
+    const { config, warning } = loadConfig(dir);
+    expect(config).toEqual(DEFAULT_CONFIG);
+    expect(warning).toContain("llm-wiki.json");
   });
 
   it("ignores a missing global dir", () => {

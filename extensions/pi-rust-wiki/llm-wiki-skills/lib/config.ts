@@ -9,9 +9,20 @@ export interface RetroConfig {
   oncePerSession: boolean;
   /** Minimum mutating (edit/write) tool calls in the window to fire. 0 = every window fires. */
   minMutatingCalls: number;
-  /** Bounded discover pass inside the worker (MCP web search, max captures). */
-  discover: boolean;
-  maxDiscoverCaptures: number;
+}
+
+/** Scheduled web discovery: finds outside sources the sessions never captured. */
+export interface DiscoverConfig {
+  /** Off by default — a discovery pass costs a worker run and wiki pages. */
+  enabled: boolean;
+  /** One full discovery pass every N settled runs. */
+  everyNRuns: number;
+  /** Seed topics. Empty = work the vault's own gaps. */
+  topics: string[];
+  /** Hard cap on captures per run. */
+  maxCaptures: number;
+  /** Inspect and report only — capture/synthesize nothing. */
+  dryRun: boolean;
 }
 
 export interface AutopilotConfig {
@@ -26,6 +37,7 @@ export interface AutopilotConfig {
   /** Bearer token for the wiki MCP endpoint (WIKI_TOKEN env, falling back to AIPROXY_TOKEN for aiproxy-hosted servers; server is unauthenticated by default). */
   wikiMcpToken: string;
   retro: RetroConfig;
+  discover: DiscoverConfig;
 }
 
 export const DEFAULT_WIKI_MCP_URL = "http://host.containers.internal:9999/mcp/wiki";
@@ -37,7 +49,8 @@ export const DEFAULT_CONFIG: AutopilotConfig = {
   display: false,
   wikiMcpUrl: DEFAULT_WIKI_MCP_URL,
   wikiMcpToken: process.env.WIKI_TOKEN ?? process.env.AIPROXY_TOKEN ?? "",
-  retro: { enabled: true, everyNRuns: 8, oncePerSession: false, minMutatingCalls: 0, discover: true, maxDiscoverCaptures: 3 },
+  retro: { enabled: true, everyNRuns: 8, oncePerSession: false, minMutatingCalls: 0 },
+  discover: { enabled: true, everyNRuns: 24, topics: [], maxCaptures: 3, dryRun: false },
 };
 
 export const CONFIG_FILENAME = "llm-wiki.json";
@@ -47,8 +60,9 @@ export interface LoadResult {
   warning?: string;
 }
 
-type PartialConfig = Partial<Omit<AutopilotConfig, "retro">> & {
+type PartialConfig = Partial<Omit<AutopilotConfig, "retro" | "discover">> & {
   retro?: Partial<RetroConfig>;
+  discover?: Partial<DiscoverConfig>;
 };
 
 /** pi's global agent dir, honoring the documented PI_CODING_AGENT_DIR override. */
@@ -56,10 +70,71 @@ export function globalAgentDir(): string {
   return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
 }
 
+/**
+ * Strip `//` line and block comments so the config can be documented inline.
+ * String-aware: a `//` inside a value (e.g. `"http://host"`) is left alone,
+ * including escaped quotes. Newlines are preserved so parse errors still
+ * point at the right line.
+ */
+export function stripJsonComments(text: string): string {
+  let out = "";
+  let inString = false;
+  let inLine = false;
+  let inBlock = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (inLine) {
+      if (c === "\n") {
+        inLine = false;
+        out += c;
+      }
+      continue;
+    }
+    if (inBlock) {
+      if (c === "*" && next === "/") {
+        inBlock = false;
+        i++;
+      } else if (c === "\n") {
+        out += c;
+      }
+      continue;
+    }
+    if (inString) {
+      out += c;
+      if (c === "\\") {
+        out += next ?? "";
+        i++;
+      } else if (c === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      out += c;
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      inLine = true;
+      i++;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      inBlock = true;
+      i++;
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
 function readLayer(path: string): { raw?: PartialConfig; warning?: string } {
   if (!existsSync(path)) return {};
   try {
-    return { raw: JSON.parse(readFileSync(path, "utf-8")) as PartialConfig };
+    const text = stripJsonComments(readFileSync(path, "utf-8"));
+    return { raw: JSON.parse(text) as PartialConfig };
   } catch (err) {
     return { warning: `[llm-wiki-autopilot] malformed ${path}, ignoring it: ${(err as Error).message}` };
   }
@@ -93,12 +168,29 @@ export function loadConfig(cwd: string, globalDir: string = globalAgentDir()): L
           project.raw?.retro?.minMutatingCalls ??
           global.raw?.retro?.minMutatingCalls ??
           DEFAULT_CONFIG.retro.minMutatingCalls,
-        discover:
-          project.raw?.retro?.discover ?? global.raw?.retro?.discover ?? DEFAULT_CONFIG.retro.discover,
-        maxDiscoverCaptures:
-          project.raw?.retro?.maxDiscoverCaptures ??
-          global.raw?.retro?.maxDiscoverCaptures ??
-          DEFAULT_CONFIG.retro.maxDiscoverCaptures,
+      },
+      discover: {
+        enabled:
+          project.raw?.discover?.enabled ??
+          global.raw?.discover?.enabled ??
+          DEFAULT_CONFIG.discover.enabled,
+        everyNRuns:
+          project.raw?.discover?.everyNRuns ??
+          global.raw?.discover?.everyNRuns ??
+          DEFAULT_CONFIG.discover.everyNRuns,
+        topics: (
+          project.raw?.discover?.topics ??
+          global.raw?.discover?.topics ??
+          DEFAULT_CONFIG.discover.topics
+        ).filter((t): t is string => typeof t === "string" && t.trim().length > 0),
+        maxCaptures:
+          project.raw?.discover?.maxCaptures ??
+          global.raw?.discover?.maxCaptures ??
+          DEFAULT_CONFIG.discover.maxCaptures,
+        dryRun:
+          project.raw?.discover?.dryRun ??
+          global.raw?.discover?.dryRun ??
+          DEFAULT_CONFIG.discover.dryRun,
       },
     },
     warning,

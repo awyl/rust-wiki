@@ -9,9 +9,12 @@ Autonomous [rust-wiki](../rust-wiki/) skill triggers for
 |---------|------|--------|
 | Bootstrap | first user message | **Holds the turn for sub-second mechanical MCP calls, then processes the message**: the extension calls the wiki server directly (`wiki_use_space` → `wiki_bootstrap` if the space is missing). No model involved. Sessions that never receive a message never fire it. Wiki scoping rides the research nudge footer (session-static, cache-safe). Endpoint: `wikiMcpUrl` config key (default = the local rust-wiki server), token = `$WIKI_TOKEN` (falls back to `$AIPROXY_TOKEN` for aiproxy-hosted servers) |
 | Research nudge | every turn | Static 3-line system-prompt footer routing knowledge questions to the `research` skill (cache-safe) |
-| Retro | every 8 settled runs (re-arms; `oncePerSession` pins to first; `minMutatingCalls` optionally skips quiet windows; backstop fires after 10 quiet windows) | **Fully background, zero model context**: the extension writes mechanical git evidence to a temp file and spawns one detached headless `pi -p` worker (`LLM_WIKI_AUTOPILOT_DISABLE=1`). Static worker instructions live in `worker-retro.md` — zosmaai non-trivial rule (record nothing for trivial sessions), bounded discover pass via MCP web search. Completion surfaces as a bootstrap-style UI notice only (info on success, warning on failure); logs to `/tmp/llm-wiki-retro-<space>.log` |
+| Retro | every 8 settled runs (re-arms; `oncePerSession` pins to first; `minMutatingCalls` optionally skips quiet windows; backstop fires after 10 quiet windows) | **Fully background, zero model context**: the extension writes mechanical git evidence to a temp file and spawns one detached headless `pi -p` worker (`LLM_WIKI_AUTOPILOT_DISABLE=1`). Static worker instructions live in `worker-retro.md` — zosmaai non-trivial rule (record nothing for trivial sessions). Completion surfaces as a bootstrap-style UI notice only (info on success, warning on failure); logs to `/tmp/llm-wiki-retro-<space>.log` |
+| Discovery | every 24 settled runs (on by default; set `discover.enabled: false` to turn off) | Same background mechanism with `worker-discover.md`: finds outside sources the sessions never captured via MCP web search, bounded by `maxCaptures`, then synthesizes linked pages — one page per named person/org/tool/product, matching zosmaai's entity behaviour. Skips URLs already in the vault; `topics` empty means work the vault's own gaps; `dryRun` reports without writing. Shares a single-flight guard with retro (they never run at once); logs to `/tmp/llm-wiki-discover-<space>.log` (appended, one `=== run ===` header per pass) |
 
-Two skills are vendored and load natively — `/skill:research`, `/skill:retro`.
+Three skills are vendored and load natively — `/skill:llm-wiki` (canonical
+workflows), `/skill:retro`, `/skill:research`. Two background worker prompts
+sit next to them: `worker-retro.md` and `worker-discover.md`.
 
 ## Space guardrails
 
@@ -31,7 +34,9 @@ pi install /work
 
 ## Config
 
-Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
+Optional `<project>/.pi/llm-wiki.json` (absent = defaults). `//` and
+`/* */` comments are allowed — they are stripped before parsing, and a `//`
+inside a value (a URL, say) is left alone:
 
 ```json
 {
@@ -41,7 +46,8 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
   "display": false,
   "wikiMcpUrl": "http://host.containers.internal:8484/mcp"  # or omit when aiproxy hosts the server
   "wikiMcpToken": "",
-  "retro": { "enabled": true, "everyNRuns": 8, "oncePerSession": false }
+  "retro": { "enabled": true, "everyNRuns": 8, "oncePerSession": false },
+  "discover": { "enabled": true, "everyNRuns": 24, "topics": [], "maxCaptures": 3, "dryRun": false }
 }
 ```
 
@@ -58,6 +64,8 @@ Optional `<project>/.pi/llm-wiki.json` (absent = defaults):
 **`wikiMcpToken`:** bearer token for that endpoint. Default empty — rust-wiki serves unauthenticated on trusted networks. Set via `WIKI_TOKEN` env or the config key if you front it with auth.
 
 **`retro.oncePerSession`:** default `false` — retro re-arms and fires again after every `everyNRuns` settled runs. Set `true` for the fire-once-per-session behavior.
+
+**`discover`:** default **on**. A background worker runs every `everyNRuns` settled runs (default 24) and adds outside sources the sessions never captured: it searches the web with the MCP search tools, skips URLs already in the vault, captures at most `maxCaptures` (default 3), then synthesizes linked pages — including one `entity` page per named person, organization, tool, or product, which is how zosmaai's vaults filled up. `topics` seeds it (empty = work the vault's own gaps; every topic must link to an existing page). `dryRun: true` reports what it would capture and writes nothing. Set `enabled: false` to turn it off. Discovery and retro share one single-flight guard, so they never overlap. Worker output is appended to `/tmp/llm-wiki-discover-<space>.log`, one `=== run <timestamp> ===` header per pass.
 
 **Wiki space naming:** derived per project from git — `<first-commit-subject>-<short-hash>`, e.g. `init rust-wiki` → `rust-wiki-cc79119`. Bootstrap creates the space if it doesn't exist, then scopes every wiki call to it. Not a git repo (or no commits) → the default space is used.
 

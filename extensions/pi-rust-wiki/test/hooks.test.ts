@@ -29,6 +29,14 @@ const fakeCtx = (cwd = "/tmp/project") => ({
   ui: { notify: vi.fn() },
 });
 
+/**
+ * Hermetic cwd for tests that run settled runs. A directory with no
+ * `.pi/llm-wiki.json`, so the developer's real project config (which may
+ * enable discovery or change cadence) can never leak into the suite.
+ * Tests that assert the git-derived space name keep using "/work".
+ */
+const HERMETIC_CWD = "/tmp";
+
 function recorder(results: BootstrapResult[] = [{ space: "ok", index: "ok", detail: "space ok; index ok" }]) {
   const calls: any[] = [];
   let i = 0;
@@ -52,7 +60,7 @@ describe("bootstrap hold", () => {
   it("session_start fires nothing; the first agent run runs the mechanical bootstrap first", async () => {
     const { ensureWikiReadyFn, calls } = recorder();
     const { handlers, sent } = await loadExtension({ ensureWikiReadyFn });
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx("/work"); // git repo — asserts the derived space name
     await handlers.get("session_start")!({ reason: "startup" }, ctx);
     expect(sent).toHaveLength(0);
     expect(calls).toHaveLength(0); // nothing fires until the user speaks
@@ -66,7 +74,7 @@ describe("bootstrap hold", () => {
   it("bootstrap runs exactly once per session", async () => {
     const { ensureWikiReadyFn, calls } = recorder();
     const { handlers } = await loadExtension({ ensureWikiReadyFn });
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx(HERMETIC_CWD);
     const hook = handlers.get("before_agent_start")!;
     await hook({ prompt: "a", systemPrompt: "BASE" }, ctx);
     await hook({ prompt: "b", systemPrompt: "BASE" }, ctx);
@@ -96,7 +104,7 @@ describe("bootstrap hold", () => {
         throw new Error("mcp exploded");
       },
     });
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx(HERMETIC_CWD);
     await handlers.get("session_start")!({ reason: "startup" }, ctx);
     const result = await handlers.get("before_agent_start")!(
       { prompt: "hi", systemPrompt: "BASE" },
@@ -110,7 +118,7 @@ describe("research nudge", () => {
   it("appends wiki scoping exactly once", async () => {
     const { ensureWikiReadyFn } = recorder();
     const { handlers } = await loadExtension({ ensureWikiReadyFn });
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx("/work"); // git repo — asserts the derived space name
     await handlers.get("session_start")!({ reason: "startup" }, ctx);
     const hook = handlers.get("before_agent_start")!;
     const first = await hook({ prompt: "hi", systemPrompt: "BASE" }, ctx);
@@ -142,7 +150,7 @@ describe("retro", () => {
         return workerOk();
       }) as any,
     });
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx(HERMETIC_CWD);
     await handlers.get("session_start")!({ reason: "startup" }, ctx);
     const toolCall = handlers.get("tool_call")!;
     const settled = handlers.get("agent_settled")!;
@@ -166,7 +174,7 @@ describe("retro", () => {
         return workerOk();
       }) as any,
     });
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx(HERMETIC_CWD);
     await handlers.get("session_start")!({ reason: "startup" }, ctx);
     const settled = handlers.get("agent_settled")!;
     for (let i = 0; i < 16; i++) await settled({}, ctx); // no tool calls
@@ -203,6 +211,174 @@ describe("retro", () => {
     }
   });
 
+  it("discovery is on by default", async () => {
+    const { ensureWikiReadyFn } = recorder();
+    let discoverSpawns = 0;
+    const { handlers } = await loadExtension({
+      ensureWikiReadyFn,
+      spawnWorkerFn: (async () => workerOk()) as any,
+      spawnDiscoverWorkerFn: (async () => {
+        discoverSpawns += 1;
+        return { ok: true, summary: "DISCOVER DONE captured=1 topic=rust" };
+      }) as any,
+    });
+    const ctx = fakeCtx(HERMETIC_CWD);
+    await handlers.get("session_start")!({ reason: "startup" }, ctx);
+    const settled = handlers.get("agent_settled")!;
+    // default cadence is 24 settled runs -> one discovery pass
+    for (let i = 0; i < 24; i++) await settled({}, ctx);
+    await new Promise((r) => setImmediate(r));
+    expect(discoverSpawns).toBe(1);
+  });
+
+  it("discovery can be turned off in config", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hooks-discover-off-"));
+    mkdirSync(join(dir, ".pi"), { recursive: true });
+    writeFileSync(join(dir, ".pi", "llm-wiki.json"), JSON.stringify({ discover: { enabled: false } }));
+    let discoverSpawns = 0;
+    try {
+      const { ensureWikiReadyFn } = recorder();
+      const { handlers } = await loadExtension({
+        ensureWikiReadyFn,
+        spawnWorkerFn: (async () => workerOk()) as any,
+        spawnDiscoverWorkerFn: (async () => {
+          discoverSpawns += 1;
+          return { ok: true, summary: "DISCOVER DONE captured=0 topic=none" };
+        }) as any,
+      });
+      const ctx = fakeCtx(dir);
+      await handlers.get("session_start")!({ reason: "startup" }, ctx);
+      const settled = handlers.get("agent_settled")!;
+      for (let i = 0; i < 30; i++) await settled({}, ctx);
+      await new Promise((r) => setImmediate(r));
+      expect(discoverSpawns).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("discovery fires every N settled runs with the configured bounds", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hooks-discover-"));
+    mkdirSync(join(dir, ".pi"), { recursive: true });
+    writeFileSync(
+      join(dir, ".pi", "llm-wiki.json"),
+      JSON.stringify({
+        discover: { enabled: true, everyNRuns: 3, topics: ["rust", "mcp"], maxCaptures: 2, dryRun: true },
+      }),
+    );
+    const seen: any[] = [];
+    try {
+      const { ensureWikiReadyFn } = recorder();
+      const { handlers } = await loadExtension({
+        ensureWikiReadyFn,
+        spawnWorkerFn: (async () => workerOk()) as any,
+        spawnDiscoverWorkerFn: (async (input: any) => {
+          seen.push(input);
+          return { ok: true, summary: "DISCOVER DONE captured=2 topic=mcp" };
+        }) as any,
+      });
+      const ctx = fakeCtx(dir);
+      await handlers.get("session_start")!({ reason: "startup" }, ctx);
+      const settled = handlers.get("agent_settled")!;
+      for (let i = 0; i < 6; i++) await settled({}, ctx);
+      await new Promise((r) => setImmediate(r));
+      expect(seen).toHaveLength(2); // windows ending at runs 3 and 6
+      expect(seen[0]).toMatchObject({
+        wikiName: expect.any(String),
+        topics: ["rust", "mcp"],
+        maxCaptures: 2,
+        dryRun: true,
+      });
+      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("DISCOVER DONE"), "info");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("discovery defers while a worker is in flight and retries next window", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hooks-flight-"));
+    mkdirSync(join(dir, ".pi"), { recursive: true });
+    writeFileSync(
+      join(dir, ".pi", "llm-wiki.json"),
+      JSON.stringify({ retro: { everyNRuns: 2 }, discover: { enabled: true, everyNRuns: 3 } }),
+    );
+    try {
+      const { ensureWikiReadyFn } = recorder();
+      let discoverSpawns = 0;
+      let release: (() => void) | null = null;
+      const { handlers } = await loadExtension({
+        ensureWikiReadyFn,
+        // Retro spawns first (discover is not due at run 2) and never resolves.
+        spawnWorkerFn: (async () => {
+          await new Promise<void>((r) => {
+            release = r;
+          });
+          return workerOk();
+        }) as any,
+        spawnDiscoverWorkerFn: (async () => {
+          discoverSpawns += 1;
+          return { ok: true, summary: "DISCOVER DONE captured=1 topic=rust" };
+        }) as any,
+      });
+      const ctx = fakeCtx(dir);
+      await handlers.get("session_start")!({ reason: "startup" }, ctx);
+      const settled = handlers.get("agent_settled")!;
+      await settled({}, ctx);
+      await settled({}, ctx); // retro window -> in flight
+      await new Promise((r) => setImmediate(r));
+      await settled({}, ctx); // discover due, but single-flight holds it back
+      await new Promise((r) => setImmediate(r));
+      expect(discoverSpawns).toBe(0);
+      expect(release).not.toBeNull();
+      release!();
+      await new Promise((r) => setImmediate(r));
+      await settled({}, ctx); // next window: discover retries and fires
+      await new Promise((r) => setImmediate(r));
+      expect(discoverSpawns).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a stale ctx during the completion notice cannot crash the host", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hooks-stale-"));
+    mkdirSync(join(dir, ".pi"), { recursive: true });
+    writeFileSync(
+      join(dir, ".pi", "llm-wiki.json"),
+      JSON.stringify({ retro: { everyNRuns: 1 }, discover: { enabled: true, everyNRuns: 1 } }),
+    );
+    const rejections: unknown[] = [];
+    const onRejection = (err: unknown) => rejections.push(err);
+    process.on("unhandledRejection", onRejection);
+    try {
+      const { ensureWikiReadyFn } = recorder();
+      const { handlers } = await loadExtension({
+        ensureWikiReadyFn,
+        spawnWorkerFn: (async () => workerOk()) as any,
+        spawnDiscoverWorkerFn: (async () => ({
+          ok: true,
+          summary: "DISCOVER DONE captured=0 topic=none",
+        })) as any,
+      });
+      // ctx.ui throws on access — exactly what pi does after a reload.
+      const ctx = {
+        cwd: dir,
+        sessionManager: { getSessionFile: () => "" },
+        get ui() {
+          throw new Error("This extension ctx is stale after session replacement or reload.");
+        },
+      };
+      await handlers.get("session_start")!({ reason: "startup" }, ctx);
+      await handlers.get("agent_settled")!({}, ctx);
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      expect(rejections).toHaveLength(0);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("session_start resets counters", async () => {
     const { ensureWikiReadyFn } = recorder();
     let spawns = 0;
@@ -213,7 +389,7 @@ describe("retro", () => {
         return workerOk();
       }) as any,
     });
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx(HERMETIC_CWD);
     const toolCall = handlers.get("tool_call")!;
     const settled = handlers.get("agent_settled")!;
     for (let i = 0; i < 8; i++) {
@@ -266,7 +442,7 @@ describe("retro", () => {
       ensureWikiReadyFn,
       spawnWorkerFn: (async () => ({ ok: false, summary: "worker exited 1" })) as any,
     });
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx(HERMETIC_CWD);
     await handlers.get("session_start")!({ reason: "startup" }, ctx);
     const toolCall = handlers.get("tool_call")!;
     const settled = handlers.get("agent_settled")!;
@@ -314,7 +490,7 @@ describe("health hints (C+D)", () => {
       return warn;
     };
     const { handlers } = await loadExtension({ ensureWikiReadyFn: async () => ({ space: "ok", index: "ok", detail: "d" }), healthFn });
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx("/work"); // git repo — the health probe needs a space name
     await handlers.get("session_start")!({}, ctx);
     await handlers.get("before_agent_start")!({ prompt: "a", systemPrompt: "BASE" }, ctx);
     await handlers.get("before_agent_start")!({ prompt: "b", systemPrompt: "BASE" }, ctx);
@@ -329,7 +505,7 @@ describe("health hints (C+D)", () => {
       healthFn,
       spawnWorkerFn: (async () => ({ ok: true, summary: "RETRO DONE pages=0" })) as any,
     });
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx(HERMETIC_CWD);
     await handlers.get("session_start")!({}, ctx);
     const toolCall = handlers.get("tool_call")!;
     for (let i = 0; i < 8; i++) {
@@ -352,7 +528,7 @@ describe("use_space intercept", () => {
 
   it("first use_space pins; different space blocked", async () => {
     const { handlers } = await loadExtension();
-    await handlers.get("session_start")!({}, fakeCtx("/work"));
+    await handlers.get("session_start")!({}, fakeCtx(HERMETIC_CWD));
     expect(await handlers.get("tool_call")!(useSpace("proj-a"), {})).toBeUndefined();
     await handlers.get("tool_result")!(useSpaceResult("proj-a"), {});
     expect(await handlers.get("tool_call")!(useSpace("proj-a"), {})).toBeUndefined(); // idempotent
@@ -365,21 +541,21 @@ describe("use_space intercept", () => {
 
   it("use_space personal always blocked", async () => {
     const { handlers } = await loadExtension();
-    await handlers.get("session_start")!({}, fakeCtx("/work"));
+    await handlers.get("session_start")!({}, fakeCtx(HERMETIC_CWD));
     const blocked = await handlers.get("tool_call")!(useSpace("personal"), {});
     expect(blocked).toEqual({ block: true, reason: expect.stringContaining("personal") });
   });
 
   it("failed use_space does not pin", async () => {
     const { handlers } = await loadExtension();
-    await handlers.get("session_start")!({}, fakeCtx("/work"));
+    await handlers.get("session_start")!({}, fakeCtx(HERMETIC_CWD));
     await handlers.get("tool_result")!(useSpaceResult("proj-a", true), {});
     expect(await handlers.get("tool_call")!(useSpace("proj-b"), {})).toBeUndefined();
   });
 
   it("pin resets on new session", async () => {
     const { handlers } = await loadExtension();
-    const ctx = fakeCtx("/work");
+    const ctx = fakeCtx(HERMETIC_CWD);
     await handlers.get("session_start")!({}, ctx);
     await handlers.get("tool_result")!(useSpaceResult("proj-a"), {});
     await handlers.get("session_start")!({}, ctx);
@@ -388,7 +564,7 @@ describe("use_space intercept", () => {
 
   it("non-space tools untouched", async () => {
     const { handlers } = await loadExtension();
-    await handlers.get("session_start")!({}, fakeCtx("/work"));
+    await handlers.get("session_start")!({}, fakeCtx(HERMETIC_CWD));
     expect(
       await handlers.get("tool_call")!({ toolName: "wiki_recall", input: {} }, {}),
     ).toBeUndefined();

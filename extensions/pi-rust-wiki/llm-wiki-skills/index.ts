@@ -5,6 +5,8 @@ import { DEFAULT_CONFIG, loadConfig, type AutopilotConfig } from "./lib/config.j
 import { ensureWikiReady } from "./lib/bootstrap.js";
 import { buildResearchNudge } from "./lib/messages.js";
 import { buildEvidence, isMutatingTool, shouldFireRetro, spawnWorker } from "./lib/retro.js";
+import { spawnDiscoverWorker } from "./lib/discover.js";
+import { notify } from "./lib/notify.js";
 import {
   buildHealthHint,
   buildRecallMessage,
@@ -21,6 +23,8 @@ export interface ExtensionDeps {
   healthFn?: typeof healthForPrompt;
   /** Test seam: replaces the detached worker spawn. */
   spawnWorkerFn?: typeof spawnWorker;
+  /** Test seam: replaces the detached discovery spawn. */
+  spawnDiscoverWorkerFn?: typeof spawnDiscoverWorker;
 }
 
 export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps = {}): void {
@@ -32,13 +36,19 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   const skillsDir = join(here, "..", "..", "skills");
   const skillPath = (name: string) => join(skillsDir, name, "SKILL.md");
   const workerPromptPath = join(here, "worker-retro.md");
+  const discoverPromptPath = join(here, "worker-discover.md");
   const ensure = deps.ensureWikiReadyFn ?? ensureWikiReady;
   const health = deps.healthFn ?? healthForPrompt;
   const spawnW = deps.spawnWorkerFn ?? spawnWorker;
+  const spawnD = deps.spawnDiscoverWorkerFn ?? spawnDiscoverWorker;
 
   let settledRuns = 0;
+  let discoverRuns = 0;
   let mutatingCalls = 0;
   let retroProposed = false;
+  // Single-flight: retro and discovery never run at once. A window that
+  // finds the flag set keeps its counters and retries on the next run.
+  let workerInFlight = false;
   let bootstrapRan = false;
   // Space pin: first successful wiki_use_space wins. Personal switching is
   // prohibited — personal writes go through the dedicated personal tools.
@@ -88,6 +98,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
 
   pi.on("session_start", async (_event, ctx) => {
     settledRuns = 0;
+    discoverRuns = 0;
     mutatingCalls = 0;
     retroProposed = false;
     bootstrapRan = false;
@@ -95,7 +106,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     wikiName = deriveWikiName(ctx.cwd);
     const loaded = loadConfig(ctx.cwd);
     config = loaded.config;
-    if (loaded.warning) ctx.ui.notify(loaded.warning, "warning");
+    if (loaded.warning) notify(ctx, loaded.warning, "warning");
     // Session-static system prompt footer: wiki scoping rides the nudge
     // (byte-identical all session — prompt-cache safe).
     nudge = buildResearchNudge(wikiName);
@@ -115,12 +126,16 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
           token: config.wikiMcpToken,
         });
         if (result.space === "error") {
-          ctx.ui.notify(`[llm-wiki] bootstrap failed: ${result.detail} — continuing without it (index self-heals via retro)`, "warning");
+          notify(
+            ctx,
+            `[llm-wiki] bootstrap failed: ${result.detail} — continuing without it (index self-heals via retro)`,
+            "warning",
+          );
         } else {
-          ctx.ui.notify(`[rust-wiki] space "${wikiName ?? "default"}" ${result.space} — ${result.detail}`, "info");
+          notify(ctx, `[rust-wiki] space "${wikiName ?? "default"}" ${result.space} — ${result.detail}`, "info");
         }
       } catch (err) {
-        ctx.ui.notify(`[llm-wiki] bootstrap failed: ${(err as Error).message} — continuing without it`, "warning");
+        notify(ctx, `[llm-wiki] bootstrap failed: ${(err as Error).message} — continuing without it`, "warning");
       }
     }
     // Once-per-session health probe (runs regardless of autoInject): push
@@ -129,7 +144,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
       healthChecked = true;
       const status = await health(config.wikiMcpUrl, config.wikiMcpToken, wikiName);
       const hint = status ? buildHealthHint(status) : undefined;
-      if (hint) ctx.ui.notify(`[rust-wiki] ${hint}`, "warning");
+      if (hint) notify(ctx, `[rust-wiki] ${hint}`, "warning");
     }
 
     // Per-turn recall injection (opt-in). Volatile content NEVER enters the
@@ -157,10 +172,41 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
+    settledRuns += 1;
+    discoverRuns += 1;
+
+    // Discovery runs first: the retro block below uses early returns for its
+    // own gate, and both share the single-flight guard.
+    const { discover } = config;
+    if (!discover.enabled) {
+      discoverRuns = 0;
+    } else if (discoverRuns >= discover.everyNRuns && !workerInFlight) {
+      discoverRuns = 0;
+      const space = wikiName ?? "default";
+      const logPath = `/tmp/llm-wiki-discover-${space}.log`;
+      workerInFlight = true;
+      void (async () => {
+        try {
+          const r = await spawnD({
+            workerPromptPath: discoverPromptPath,
+            wikiName: space,
+            topics: discover.topics,
+            maxCaptures: discover.maxCaptures,
+            dryRun: discover.dryRun,
+            logPath,
+          });
+          notify(ctx, `[rust-wiki] discover: ${r.summary}`, r.ok ? "info" : "warning");
+        } catch (err) {
+          notify(ctx, `[rust-wiki] discover worker failed: ${(err as Error).message}`, "warning");
+        } finally {
+          workerInFlight = false;
+        }
+      })();
+    }
+
     const { retro } = config;
     if (!retro.enabled) return;
     if (retro.oncePerSession && retroProposed) return;
-    settledRuns += 1;
     if (
       !shouldFireRetro(settledRuns, retro.everyNRuns, mutatingCalls, retro.minMutatingCalls) &&
       settledRuns < retro.everyNRuns * 10
@@ -176,6 +222,9 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     // Re-arm: fires again after another `everyNRuns` settled runs, unless
     // `oncePerSession` pins it to the first fire only. Backstop (x10) keeps
     // a long trivial stretch from deferring retro forever.
+    // A worker is already running — keep the counters so the next settled
+    // run retries this window instead of dropping it.
+    if (workerInFlight) return;
     const space = wikiName ?? "default";
     const evidence = buildEvidence(ctx.cwd, space, mutatingCalls);
     // Transcript access: the worker judges non-triviality from the session
@@ -193,8 +242,23 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     const logPath = `/tmp/llm-wiki-retro-${space}.log`;
     // Fully background: extension-side child process, zero model context.
     // Bootstrap-style UI notice on completion — never injected context.
-    void spawnW(workerPromptPath, evidence.path, skillPath("retro"), space, logPath, sessionFile).then((r) => {
-      ctx.ui.notify(`[rust-wiki] retro: ${r.summary}`, r.ok ? "info" : "warning");
-    });
+    workerInFlight = true;
+    void (async () => {
+      try {
+        const r = await spawnW(
+          workerPromptPath,
+          evidence.path,
+          skillPath("retro"),
+          space,
+          logPath,
+          sessionFile,
+        );
+        notify(ctx, `[rust-wiki] retro: ${r.summary}`, r.ok ? "info" : "warning");
+      } catch (err) {
+        notify(ctx, `[rust-wiki] retro worker failed: ${(err as Error).message}`, "warning");
+      } finally {
+        workerInFlight = false;
+      }
+    })();
   });
 }

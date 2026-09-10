@@ -1,7 +1,7 @@
-import { execFileSync, spawn } from "node:child_process";
-import { openSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { runWorker, sh, type WorkerResult } from "./worker.js";
 
 export interface RetroEvidence {
   path: string;
@@ -22,14 +22,6 @@ export function shouldFireRetro(
   minMutatingCalls = 1,
 ): boolean {
   return settledRuns >= everyNRuns && mutatingCalls >= minMutatingCalls;
-}
-
-function sh(cmd: string, args: string[], cwd: string): string {
-  try {
-    return execFileSync(cmd, args, { cwd, encoding: "utf-8", timeout: 15000 }).trim();
-  } catch {
-    return "(unavailable)";
-  }
 }
 
 /**
@@ -56,17 +48,11 @@ export function buildEvidence(cwd: string, wikiName: string, mutatingCalls: numb
   return { path, mutatingCalls };
 }
 
-export interface WorkerResult {
-  ok: boolean;
-  summary: string;
-}
-
-const REPORT_RE = /(RETRO DONE.*|SWEEP DONE.*|BACKFILL DONE.*)/;
+export type { WorkerResult };
 
 /**
- * Spawn the headless worker as an extension-side background process —
- * zero model context in the main session. Resolves when the worker exits;
- * the caller surfaces a bootstrap-style UI notice (never context).
+ * Fire the retro worker. Same background mechanism as discovery; the prompt
+ * carries the evidence file, the session transcript tail, and the skill.
  */
 export function spawnWorker(
   workerPromptPath: string,
@@ -76,36 +62,15 @@ export function spawnWorker(
   logPath: string,
   sessionFile = "",
 ): Promise<WorkerResult> {
-  return new Promise((resolve) => {
-    const prompt = [
-      `Read ${workerPromptPath} and follow it.`,
-      `Evidence file: ${evidencePath}.`,
-      sessionFile ? `Session transcript: ${sessionFile} (read the tail for analysis/decisions not visible in git).` : "No transcript available — judge from the evidence file.",
-      `Retro skill: ${skillPath}.`,
-      `Wiki: ${wikiName}.`,
-      "When done, print a final single line: RETRO DONE pages=<n>.",
-    ].join(" ");
-    let logFd: number;
-    try {
-      logFd = openSync(logPath, "w");
-    } catch (err) {
-      resolve({ ok: false, summary: `cannot open log: ${(err as Error).message}` });
-      return;
-    }
-    const child = spawn("pi", ["-p", prompt], {
-      env: { ...process.env, LLM_WIKI_AUTOPILOT_DISABLE: "1" },
-      stdio: ["ignore", logFd, logFd],
-      detached: false,
-    });
-    child.on("error", (err) => resolve({ ok: false, summary: `spawn failed: ${err.message}` }));
-    child.on("close", (code) => {
-      if (code !== 0) {
-        resolve({ ok: false, summary: `worker exited ${code} (log: ${logPath})` });
-        return;
-      }
-      const tail = sh("tail", ["-5", logPath], tmpdir());
-      const m = tail.match(REPORT_RE);
-      resolve({ ok: true, summary: m ? m[1] : "worker done, no report line" });
-    });
-  });
+  const prompt = [
+    `Read ${workerPromptPath} and follow it.`,
+    `Evidence file: ${evidencePath}.`,
+    sessionFile
+      ? `Session transcript: ${sessionFile} (read the tail for analysis/decisions not visible in git).`
+      : "No transcript available — judge from the evidence file.",
+    `Retro skill: ${skillPath}.`,
+    `Wiki: ${wikiName}.`,
+    "When done, print a final single line: RETRO DONE pages=<n>.",
+  ].join(" ");
+  return runWorker(prompt, logPath, tmpdir());
 }
