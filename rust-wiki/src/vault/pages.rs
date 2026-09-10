@@ -24,6 +24,17 @@ pub fn folder_for(page_type: &str) -> Option<&'static str> {
         .map(|(_, f)| *f)
 }
 
+/// Canonical page type for a wiki directory. Known dirs come from
+/// `PAGE_TYPES` (`analyses` -> analysis, not `analyse`); unknown dirs fall
+/// back to naive singularization so custom folders still scan.
+pub fn type_for_folder(folder: &str) -> String {
+    PAGE_TYPES
+        .iter()
+        .find(|(_, f)| *f == folder)
+        .map(|(t, _)| (*t).to_string())
+        .unwrap_or_else(|| folder.trim_end_matches('s').to_string())
+}
+
 pub fn valid_slug(slug: &str) -> bool {
     !slug.is_empty()
         && slug.len() <= 96

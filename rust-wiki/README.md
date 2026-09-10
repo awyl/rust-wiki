@@ -76,6 +76,31 @@ status, one log line per space. No crontab, no human steps.
 
 Manual one-space cycle: `./target/release/rust-wiki cron --space <name>`.
 
+### Migrating a space to OKF v0.2
+
+New spaces are bootstrapped as `okf-0.2`. Legacy spaces keep their format
+until you upgrade them explicitly:
+
+```bash
+./target/release/rust-wiki migrate-okf --space <name>
+```
+
+Sets `knowledge_format` in that space's `config.json` (every other key
+preserved) and regenerates the deterministic projections — `wiki/index.md`,
+per-directory `index.md`, `wiki/log.md`. Idempotent: a second run reports
+`already okf-0.2`. It refuses if a hand-written page already occupies a
+generated path (`wiki/index.md`, `wiki/log.md`, `wiki/*/index.md`), listing
+the clashing pages, so nothing is overwritten.
+
+A space never migrated stays perfectly usable — OKF mode only adds the
+generated, write-protected projections.
+
+**Automatic on boot:** the server also runs this rollout for every legacy
+space when it starts, so a deploy upgrades the vaults without a manual step.
+Spaces that refuse (hand-written projection paths) are logged and left alone.
+This boot-time bridge is temporary and is removed once every deployed vault
+carries `knowledge_format`.
+
 ### Semantic recall (optional)
 
 Without an embedding provider the engine is purely lexical (in-process,
@@ -91,6 +116,10 @@ Then per space, once and after bulk imports, call the
 `wiki_reindex_embeddings` tool. Vectors are stored in
 `meta/embeddings.json`; `wiki_recall` embeds the query and blends cosine
 similarity into lexical scores. No provider → clean no-op message.
+
+`WIKI_EMBEDDING_URL` is the **full endpoint** (the server posts to it as-is).
+Self-hosted embedding servers can take ~1 minute to answer the first, cold
+call; the client timeout is 180s, then warm calls are milliseconds.
 
 ### Spaces
 
@@ -111,6 +140,10 @@ similarity into lexical scores. No provider → clean no-op message.
 
 `wiki_watch` with no arguments reports scheduler status;
 `{"run": true}` triggers an immediate all-spaces maintenance cycle.
+
+`wiki_status` also reports `server_version` (from the binary's own build),
+and the server logs `rust-wiki v<version>` at boot — either one tells you
+whether a deploy is actually live.
 
 ## Frontmatter and links
 

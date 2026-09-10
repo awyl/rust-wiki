@@ -224,7 +224,7 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "type": "object",
         "properties": {"space": {"type": "string"}, "auto_fix": {"type": "boolean"}}
     })),
-    ("wiki_status", "Wiki stats and health verdict.", json!({
+        ("wiki_status", "Wiki stats and health verdict, plus the running server version.", json!({
         "type": "object",
         "properties": {"space": {"type": "string"}}
     })),

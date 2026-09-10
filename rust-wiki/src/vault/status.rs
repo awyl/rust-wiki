@@ -85,7 +85,7 @@ mod tests {
                 super::super::registry::PageEntry {
                     id: id.into(),
                     title: id.into(),
-                    page_type: id.split('/').next().unwrap().trim_end_matches('s').into(),
+                    page_type: super::super::pages::type_for_folder(id.split('/').next().unwrap()),
                     path: format!("wiki/{id}.md"),
                     links: vec![],
                     excerpt: String::new(),

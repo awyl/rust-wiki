@@ -37,8 +37,11 @@ impl Embedder for HttpEmbedder {
         struct Data {
             embedding: Vec<f32>,
         }
+        // Cold-start on a self-hosted embedding model measured at ~54s
+        // (2026-09-10), too close to a 60s ceiling. 180s leaves headroom
+        // for the first call; warm calls are ~12ms.
         let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(180))
             .build()
             .map_err(|e| e.to_string())?;
         let mut req = client.post(&self.url).json(&serde_json::json!({

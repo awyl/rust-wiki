@@ -152,6 +152,8 @@ pub struct StatusOut {
     pub health: String,
     /// Git backing state (None when backing never ticked/disabled).
     pub git: Option<crate::vault::git::GitState>,
+    /// Version of the running server binary — tells you whether a deploy is live.
+    pub server_version: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]

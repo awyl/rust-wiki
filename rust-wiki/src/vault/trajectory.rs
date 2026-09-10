@@ -213,7 +213,7 @@ mod tests {
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].trajectory_id, c.trajectory_id);
 
-        let batch2 = distill(&v, &[c.trajectory_id.clone()]).unwrap();
+        let batch2 = distill(&v, std::slice::from_ref(&c.trajectory_id)).unwrap();
         assert!(batch2.is_empty());
 
         let bad = capture_trajectory(&v, "2026-09-09", "t", "X", "maybe", &steps, "s");

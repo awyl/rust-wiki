@@ -342,7 +342,7 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
                 .unwrap_or_else(|| first_heading_or(body, &file_stem));
             let page_type = fm
                 .scalar("type")
-                .unwrap_or_else(|| folder.trim_end_matches('s').to_string());
+                .unwrap_or_else(|| super::pages::type_for_folder(folder));
             let description = fm.scalar("description").unwrap_or_default();
             let source_id = if folder == "sources" {
                 Some(file_stem.clone())
@@ -449,6 +449,36 @@ mod tests {
         let p = v.page_path(id);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, body).unwrap();
+    }
+
+    #[test]
+    fn type_defaults_follow_the_directory_map() {
+        let (_tmp, v) = setup_vault();
+        let cases = [
+            ("analyses/alpha", "analysis"),
+            ("entities/beta", "entity"),
+            ("syntheses/gamma", "synthesis"),
+            ("concepts/delta", "concept"),
+            ("requirements/epsilon", "requirement"),
+        ];
+        for (id, _) in cases {
+            // No `type:` frontmatter — the directory decides.
+            write_page(&v, id, "# Page\n\nBody.\n");
+        }
+        let reg = rebuild_metadata(&v).unwrap();
+        for (id, want) in cases {
+            assert_eq!(reg.pages[id].page_type, want, "type for {id}");
+        }
+    }
+
+    #[test]
+    fn type_for_folder_handles_irregular_plurals() {
+        use super::super::pages::type_for_folder;
+        assert_eq!(type_for_folder("analyses"), "analysis");
+        assert_eq!(type_for_folder("entities"), "entity");
+        assert_eq!(type_for_folder("syntheses"), "synthesis");
+        // unknown dirs keep the old naive fallback
+        assert_eq!(type_for_folder("customs"), "custom");
     }
 
     #[test]

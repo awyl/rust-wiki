@@ -1,6 +1,6 @@
 {
   "name": "pi-rust-wiki",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Autonomous llm-wiki skill triggers for pi: bootstrap on session start, research nudge, crystallize proposal",
   "type": "module",
   "license": "MIT",

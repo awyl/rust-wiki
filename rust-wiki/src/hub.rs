@@ -390,6 +390,7 @@ impl WikiApi for Hub {
             gaps: st.gaps,
             health: st.health,
             git: crate::vault::git::read_state(&self.root),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
         })
     }
 
