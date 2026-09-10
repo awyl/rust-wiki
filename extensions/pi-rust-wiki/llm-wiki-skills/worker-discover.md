@@ -20,6 +20,9 @@ from your stdout, nothing else.
    - `wiki_status` — page counts and health.
    - `wiki_lint` — `missing_pages`, orphans.
    - `wiki_search` on each configured topic.
+   - **Empty-space stop:** a space with no pages has nothing to anchor to —
+     stop with `DISCOVER DONE captured=0 topic=none (obstacle: space is
+     empty — no anchor)`. In a new project, retro populates the vault first.
 3. Pick **ONE** topic for this run, in this order:
    - a configured topic, if any were given;
    - otherwise the vault's own gaps — a `missing_pages` entry, or a topic
@@ -29,6 +32,10 @@ from your stdout, nothing else.
    survey a second, never report on candidates you did not work.
 4. Search the web with the MCP web-search tools available to you. Never
    search from model memory and never invent a URL.
+   **Engines:** the default engine mix pollutes technical queries with
+   unrelated results (a query about the Rust language returns the game). Pass
+   explicit engines where the tool supports it (`engines: "ddg html,google"`).
+   If results are still junk, apply the junk-search rule below.
 5. For each promising result, up to the capture cap:
    - skip anything already captured — `wiki_search` the title/domain first;
    - skip ads, listicles, and duplicates; prefer in-depth sources;
@@ -44,9 +51,18 @@ from your stdout, nothing else.
      sources is normal; zero entities means you did not look.
    - **Concepts:** one `wiki_ensure_page(type="concept", title=...)` per idea
      or pattern, only where the vault does not already cover it.
-   - Every new page links with `[label](/folder/page.md)` to at least one
-     existing page, and entities link to the concept/source pages that
-     introduced them.
+   - **Scaffold every page from `wiki_template(type)`** and fill it: keep the
+     frontmatter fields and the section headings. Never leave a template stub,
+     and never hand-roll thin frontmatter — `title` + `type` alone is a stub.
+   - **One directory per type:** concepts → `concepts/`, entities →
+     `entities/`, sources → `sources/`, syntheses → `syntheses/`, analyses →
+     `analyses/`. A source page NEVER lives under `concepts/`, and one thing
+     gets exactly ONE page — never `entities/cohere` *and* `concepts/cohere`.
+   - **Link form:** root-relative `/folder/page.md`, e.g. `/entities/nomic-ai.md`.
+     Never prefix the space name — `/default/entities/...` is wrong, the space
+     root is already implicit — and never write a bare slug.
+   - Every new page links to at least one existing page, and entities link to
+     the concept/source pages that introduced them.
 7. Quality gate: `wiki_lint` with `auto_fix: true`; fix what it reports.
 8. Finish with exactly one line on stdout (the extension parses it):
    `DISCOVER DONE captured=<n> topic=<topic> entities=<n>`

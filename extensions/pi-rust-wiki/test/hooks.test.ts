@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,12 +31,32 @@ const fakeCtx = (cwd = "/tmp/project") => ({
 });
 
 /**
- * Hermetic cwd for tests that run settled runs. A directory with no
- * `.pi/llm-wiki.json`, so the developer's real project config (which may
- * enable discovery or change cadence) can never leak into the suite.
- * Tests that assert the git-derived space name keep using "/work".
+ * Throwaway git repo with an optional project config, cleaned up by the
+ * caller's `finally`. Real git matters: a cwd without it yields no wiki space,
+ * so the extension stays inert and a test would pass for the wrong reason.
+ * A temp repo rather than the developer's project keeps the real
+ * `.pi/llm-wiki.json` out of the suite.
  */
-const HERMETIC_CWD = "/tmp";
+function tempProject(config?: unknown): string {
+  const dir = mkdtempSync(join(tmpdir(), "llm-wiki-fixture-"));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  execFileSync(
+    "git",
+    ["-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-q", "--allow-empty", "-m", "init fixture"],
+    { cwd: dir },
+  );
+  if (config !== undefined) {
+    mkdirSync(join(dir, ".pi"), { recursive: true });
+    writeFileSync(join(dir, ".pi", "llm-wiki.json"), JSON.stringify(config));
+  }
+  return dir;
+}
+
+/**
+ * Shared fixture for tests that never touch config. Tests that assert the
+ * exact derived space name keep using "/work".
+ */
+const HERMETIC_CWD = tempProject();
 
 function recorder(results: BootstrapResult[] = [{ space: "ok", index: "ok", detail: "space ok; index ok" }]) {
   const calls: any[] = [];
@@ -75,6 +96,7 @@ describe("bootstrap hold", () => {
     const { ensureWikiReadyFn, calls } = recorder();
     const { handlers } = await loadExtension({ ensureWikiReadyFn });
     const ctx = fakeCtx(HERMETIC_CWD);
+    await handlers.get("session_start")!({ reason: "startup" }, ctx);
     const hook = handlers.get("before_agent_start")!;
     await hook({ prompt: "a", systemPrompt: "BASE" }, ctx);
     await hook({ prompt: "b", systemPrompt: "BASE" }, ctx);
@@ -83,9 +105,7 @@ describe("bootstrap hold", () => {
   });
 
   it("skips the bootstrap entirely when disabled", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hooks-noboot-"));
-    mkdirSync(join(dir, ".pi"), { recursive: true });
-    writeFileSync(join(dir, ".pi", "llm-wiki.json"), JSON.stringify({ bootstrap: false }));
+    const dir = tempProject({ bootstrap: false });
     const { ensureWikiReadyFn, calls } = recorder();
     try {
       const { handlers } = await loadExtension({ ensureWikiReadyFn });
@@ -111,6 +131,35 @@ describe("bootstrap hold", () => {
       ctx,
     );
     expect(result!.systemPrompt).toContain("BASE"); // turn proceeds
+  });
+});
+
+describe("no derivable wiki space", () => {
+  it("stays inert in a non-git cwd — no bootstrap, no workers, no junk space", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "llm-wiki-nogit-"));
+    const { ensureWikiReadyFn, calls } = recorder();
+    const spawnWorkerFn = vi.fn();
+    const spawnDiscoverWorkerFn = vi.fn();
+    try {
+      const { handlers, sent } = await loadExtension({
+        ensureWikiReadyFn,
+        spawnWorkerFn,
+        spawnDiscoverWorkerFn,
+      });
+      const ctx = fakeCtx(dir);
+      await handlers.get("session_start")!({ reason: "startup" }, ctx);
+      await handlers.get("before_agent_start")!({ prompt: "hi", systemPrompt: "BASE" }, ctx);
+      // Well past both cadences (discovery 24, retro backstop 8x10).
+      for (let i = 0; i < 120; i++) await handlers.get("agent_settled")!({}, ctx);
+
+      expect(calls).toHaveLength(0); // bootstrap never creates "default"
+      expect(spawnWorkerFn).not.toHaveBeenCalled();
+      expect(spawnDiscoverWorkerFn).not.toHaveBeenCalled();
+      // No bootstrap notice either — nothing mentions a space.
+      expect(sent.filter((m) => String(m.message.content).includes("space"))).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -183,12 +232,7 @@ describe("retro", () => {
   });
 
   it("minMutatingCalls gate skips quiet windows silently", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hooks-gate-"));
-    mkdirSync(join(dir, ".pi"), { recursive: true });
-    writeFileSync(
-      join(dir, ".pi", "llm-wiki.json"),
-      JSON.stringify({ retro: { minMutatingCalls: 1 } }),
-    );
+    const dir = tempProject({ retro: { minMutatingCalls: 1 } });
     try {
       const { ensureWikiReadyFn } = recorder();
       let spawns = 0;
@@ -232,9 +276,7 @@ describe("retro", () => {
   });
 
   it("discovery can be turned off in config", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hooks-discover-off-"));
-    mkdirSync(join(dir, ".pi"), { recursive: true });
-    writeFileSync(join(dir, ".pi", "llm-wiki.json"), JSON.stringify({ discover: { enabled: false } }));
+    const dir = tempProject({ discover: { enabled: false } });
     let discoverSpawns = 0;
     try {
       const { ensureWikiReadyFn } = recorder();
@@ -258,14 +300,9 @@ describe("retro", () => {
   });
 
   it("discovery fires every N settled runs with the configured bounds", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hooks-discover-"));
-    mkdirSync(join(dir, ".pi"), { recursive: true });
-    writeFileSync(
-      join(dir, ".pi", "llm-wiki.json"),
-      JSON.stringify({
-        discover: { enabled: true, everyNRuns: 3, topics: ["rust", "mcp"], maxCaptures: 2, dryRun: true },
-      }),
-    );
+    const dir = tempProject({
+      discover: { enabled: true, everyNRuns: 3, topics: ["rust", "mcp"], maxCaptures: 2, dryRun: true },
+    });
     const seen: any[] = [];
     try {
       const { ensureWikiReadyFn } = recorder();
@@ -296,12 +333,10 @@ describe("retro", () => {
   });
 
   it("discovery defers while a worker is in flight and retries next window", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hooks-flight-"));
-    mkdirSync(join(dir, ".pi"), { recursive: true });
-    writeFileSync(
-      join(dir, ".pi", "llm-wiki.json"),
-      JSON.stringify({ retro: { everyNRuns: 2 }, discover: { enabled: true, everyNRuns: 3 } }),
-    );
+    const dir = tempProject({
+      retro: { everyNRuns: 2 },
+      discover: { enabled: true, everyNRuns: 3 },
+    });
     try {
       const { ensureWikiReadyFn } = recorder();
       let discoverSpawns = 0;
@@ -341,12 +376,10 @@ describe("retro", () => {
   });
 
   it("a stale ctx during the completion notice cannot crash the host", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hooks-stale-"));
-    mkdirSync(join(dir, ".pi"), { recursive: true });
-    writeFileSync(
-      join(dir, ".pi", "llm-wiki.json"),
-      JSON.stringify({ retro: { everyNRuns: 1 }, discover: { enabled: true, everyNRuns: 1 } }),
-    );
+    const dir = tempProject({
+      retro: { everyNRuns: 1 },
+      discover: { enabled: true, everyNRuns: 1 },
+    });
     const rejections: unknown[] = [];
     const onRejection = (err: unknown) => rejections.push(err);
     process.on("unhandledRejection", onRejection);
@@ -390,6 +423,8 @@ describe("retro", () => {
       }) as any,
     });
     const ctx = fakeCtx(HERMETIC_CWD);
+    // pi always fires session_start before any turn; the space is derived there.
+    await handlers.get("session_start")!({ reason: "startup" }, ctx);
     const toolCall = handlers.get("tool_call")!;
     const settled = handlers.get("agent_settled")!;
     for (let i = 0; i < 8; i++) {
@@ -406,12 +441,7 @@ describe("retro", () => {
   });
 
   it("oncePerSession pins retro to the first window only", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hooks-config-"));
-    mkdirSync(join(dir, ".pi"), { recursive: true });
-    writeFileSync(
-      join(dir, ".pi", "llm-wiki.json"),
-      JSON.stringify({ retro: { enabled: true, everyNRuns: 8, oncePerSession: true } }),
-    );
+    const dir = tempProject({ retro: { enabled: true, everyNRuns: 8, oncePerSession: true } });
     try {
       const { ensureWikiReadyFn } = recorder();
       let spawns = 0;

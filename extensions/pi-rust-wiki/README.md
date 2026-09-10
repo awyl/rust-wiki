@@ -69,7 +69,7 @@ in the repo root; it is not read, copy it into place:
 
 **`discover`:** default **on**. A background worker runs every `everyNRuns` settled runs (default 24) and adds outside sources the sessions never captured: it searches the web with the MCP search tools, skips URLs already in the vault, captures at most `maxCaptures` (default 3), then synthesizes linked pages — including one `entity` page per named person, organization, tool, or product, which is how zosmaai's vaults filled up. `topics` seeds it (empty = work the vault's own gaps; every topic must link to an existing page). `dryRun: true` reports what it would capture and writes nothing. Set `enabled: false` to turn it off. Discovery and retro share one single-flight guard, so they never overlap. Worker output is appended to `/tmp/llm-wiki-discover-<space>.log`, one `=== run <timestamp> ===` header per pass.
 
-**Wiki space naming:** derived per project from git — `<first-commit-subject>-<short-hash>`, e.g. `init rust-wiki` → `rust-wiki-cc79119`. Bootstrap creates the space if it doesn't exist, then scopes every wiki call to it. Not a git repo (or no commits) → the default space is used.
+**Wiki space naming:** derived per project from git — `<first-commit-subject>-<short-hash>`, e.g. `init rust-wiki` → `rust-wiki-cc79119`. Bootstrap creates the space if it doesn't exist, then scopes every wiki call to it. Not a git repo (or no commits) → no space can be derived, so the autopilot stays **inert**: no bootstrap, no recall injection, no workers. It never falls back to a shared `default` space.
 
 **Env guard:** setting `LLM_WIKI_AUTOPILOT_DISABLE=1` disables all hooks — used by the retro worker to avoid recursive firing; set it yourself to turn the autopilot off for a session.
 

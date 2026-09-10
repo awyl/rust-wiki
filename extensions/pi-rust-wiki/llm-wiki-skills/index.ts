@@ -117,11 +117,15 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     // space, rebuild degraded index) run to completion — sub-second — before
     // the first message is processed. Sessions that never receive a message
     // never fire it.
-    if (config.bootstrap && !bootstrapRan) {
+    // A session with no derivable space (non-git cwd, or git unavailable)
+    // must not touch the server: bootstrap would create a junk "default"
+    // space, and the workers would fill it with unanchored pages.
+    const space = wikiName;
+    if (config.bootstrap && !bootstrapRan && space) {
       bootstrapRan = true;
       try {
         const result = await ensure({
-          wikiName: wikiName ?? "default",
+          wikiName: space,
           url: config.wikiMcpUrl,
           token: config.wikiMcpToken,
         });
@@ -132,7 +136,7 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
             "warning",
           );
         } else {
-          notify(ctx, `[rust-wiki] space "${wikiName ?? "default"}" ${result.space} — ${result.detail}`, "info");
+          notify(ctx, `[rust-wiki] space "${space}" ${result.space} — ${result.detail}`, "info");
         }
       } catch (err) {
         notify(ctx, `[llm-wiki] bootstrap failed: ${(err as Error).message} — continuing without it`, "warning");
@@ -172,6 +176,10 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
+    // No derivable space (non-git cwd) — stay inert rather than write into a
+    // junk "default" space on the shared server.
+    const space = wikiName;
+    if (!space) return;
     settledRuns += 1;
     discoverRuns += 1;
 
@@ -182,7 +190,6 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
       discoverRuns = 0;
     } else if (discoverRuns >= discover.everyNRuns && !workerInFlight) {
       discoverRuns = 0;
-      const space = wikiName ?? "default";
       const logPath = `/tmp/llm-wiki-discover-${space}.log`;
       workerInFlight = true;
       void (async () => {
@@ -225,7 +232,6 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     // A worker is already running — keep the counters so the next settled
     // run retries this window instead of dropping it.
     if (workerInFlight) return;
-    const space = wikiName ?? "default";
     const evidence = buildEvidence(ctx.cwd, space, mutatingCalls);
     // Transcript access: the worker judges non-triviality from the session
     // itself (analysis/decisions live there, not in git). Best-effort —
