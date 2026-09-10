@@ -1,6 +1,6 @@
 # rust-wiki — remote zosmaai-style wiki MCP server (design spec)
 
-**Date:** 2026-09-06 · **Status:** shipped — server v0.6.1 (2026-09-10).
+**Date:** 2026-09-06 · **Status:** shipped — server v0.6.2 (2026-09-10).
 Sections below are dated as each landed; the v1 design text is kept for
 context, superseded where a dated section says otherwise.
 **Replaces:** zosmaai/pi-llm-wiki + its 17 vendored skills (full cutover, no coexistence)
@@ -120,7 +120,7 @@ The original v1 surface (15) adapted from zosmaai's 14; semantics preserved:
 | `wiki_rebuild_meta` | full projection rebuild (synchronous) |
 | `wiki_log_event` | append to `events.jsonl` |
 
-Shipped after v1 — all live as of v0.6.1, described in the dated sections
+Shipped after v1 — all live as of v0.6.2, described in the dated sections
 below: `wiki_template`, `wiki_ensure_personal_page`,
 `wiki_write_personal_page`, `wiki_watch`, `wiki_reindex_embeddings`,
 `wiki_capture_trajectory`, `wiki_distill_skills`, `wiki_recall_skill`.
