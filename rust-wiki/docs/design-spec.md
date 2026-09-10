@@ -306,18 +306,12 @@ feature off with a clean no-op from `wiki_reindex_embeddings`.
   their own directories and templates. Requirements carry lifecycle
   frontmatter (`status`, `priority`, `source_id`, `depends_on`).
 
-## OKF rollout and migration (2026-09-10)
+## OKF rollout (2026-09-10)
 
-- New spaces bootstrap as `okf-0.2`. Legacy spaces upgrade with
-  `rust-wiki migrate-okf --space <name>`.
-- `okf::migrate()` sets `knowledge_format` (every other config key
-  preserved) and regenerates all projections. Idempotent. It **refuses**
-rather than overwrite a hand-written page sitting at a generated path
-  (`wiki/index.md`, `wiki/log.md`, `wiki/*/index.md`), listing the clashes.
-  Config is written temp+rename so overlapping boots cannot tear it.
-- `okf::migrate_all()` also runs in `boot()`, so a deploy upgrades vaults
-  with no manual step. That boot-time bridge is temporary and marked
-  `ponytail:` for later removal.
+- New spaces bootstrap as `okf-0.2`. The one-time rollout to the existing
+  vaults is complete, so there is no migration command: a vault that
+  somehow appears in legacy mode is flipped by setting `knowledge_format`
+  in its `config.json` by hand.
 - Empty OKF vaults keep their root `wiki/index.md`; only per-directory
   indexes are pruned when a directory loses its concepts.
 

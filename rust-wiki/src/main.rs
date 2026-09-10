@@ -23,12 +23,11 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()) {
         Some("cron") => return cmd_cron(&args),
-        Some("migrate-okf") => return cmd_migrate_okf(&args),
         Some("serve") => return serve(),
         Some("stdio") => {}
         Some(other) => {
             eprintln!(
-                "unknown subcommand '{other}' — usage: rust-wiki [stdio] | serve | cron --space <name> | migrate-okf --space <name>"
+                "unknown subcommand '{other}' — usage: rust-wiki [stdio] | serve | cron --space <name>"
             );
             std::process::exit(2);
         }
@@ -64,17 +63,6 @@ fn cmd_cron(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Upgrade a legacy space to OKF v0.2 (config key + projection rebuild).
-fn cmd_migrate_okf(args: &[String]) -> anyhow::Result<()> {
-    let space = space_arg(args)?;
-    let vault = rust_wiki::vault::VaultPaths::new(&vault_root(), space);
-    println!(
-        "{}",
-        rust_wiki::vault::okf::migrate(&vault).map_err(anyhow::Error::msg)?
-    );
-    Ok(())
-}
-
 /// Shared boot: vault root + personal space + scheduler. Both transports.
 fn boot() -> anyhow::Result<Hub> {
     let root = vault_root();
@@ -97,17 +85,6 @@ fn boot() -> anyhow::Result<Hub> {
             "bootstrapped personal space at {}",
             personal.space_root.display()
         );
-    }
-    // One-time OKF rollout: bring every deployed vault onto the same
-    // deterministic projections. Idempotent — already-migrated spaces are
-    // skipped, so this is a no-op scan after the first boot.
-    // ponytail: temporary bridge — delete `migrate_all` + this block once
-    // every deployed vault carries `knowledge_format`.
-    for (space, result) in rust_wiki::vault::okf::migrate_all(&root) {
-        match result {
-            Ok(report) => eprintln!("okf migration {space}: {report}"),
-            Err(e) => eprintln!("okf migration {space}: skipped — {e}"),
-        }
     }
     // Git backing at the vault root (init on first boot; auto-commit on
     // idle, pull --rebase with abort-on-conflict, push when upstream

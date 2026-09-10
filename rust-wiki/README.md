@@ -76,31 +76,6 @@ status, one log line per space. No crontab, no human steps.
 
 Manual one-space cycle: `./target/release/rust-wiki cron --space <name>`.
 
-### Migrating a space to OKF v0.2
-
-New spaces are bootstrapped as `okf-0.2`. Legacy spaces keep their format
-until you upgrade them explicitly:
-
-```bash
-./target/release/rust-wiki migrate-okf --space <name>
-```
-
-Sets `knowledge_format` in that space's `config.json` (every other key
-preserved) and regenerates the deterministic projections — `wiki/index.md`,
-per-directory `index.md`, `wiki/log.md`. Idempotent: a second run reports
-`already okf-0.2`. It refuses if a hand-written page already occupies a
-generated path (`wiki/index.md`, `wiki/log.md`, `wiki/*/index.md`), listing
-the clashing pages, so nothing is overwritten.
-
-A space never migrated stays perfectly usable — OKF mode only adds the
-generated, write-protected projections.
-
-**Automatic on boot:** the server also runs this rollout for every legacy
-space when it starts, so a deploy upgrades the vaults without a manual step.
-Spaces that refuse (hand-written projection paths) are logged and left alone.
-This boot-time bridge is temporary and is removed once every deployed vault
-carries `knowledge_format`.
-
 ### Semantic recall (optional)
 
 Without an embedding provider the engine is purely lexical (in-process,
