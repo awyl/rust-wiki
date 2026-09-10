@@ -193,6 +193,28 @@ same container host as the legacy engine it replaces; agents' MCP configs
 repoint at it. Note: replacing the binary is not enough — the running MCP
 server process must restart to pick it up.
 
+### Git backing (auto-commit) — fixed 2026-09-10
+
+The vault root is one repo, shell `git`, driven by a thread every
+`git_interval_secs`. A commit needs the vault idle for `git_idle_secs` **and**
+dirty. That gate was unreachable: `tick` rewrites `meta/git.json` every cycle,
+and `idle_secs` counted that bookkeeping file as content activity, so idle
+reset to the tick interval (60s) below the idle window (300s) forever. With
+`git_interval_secs` 0 the thread never starts; `wiki_status.git` reported `ok`
+throughout either way, because it tracks failures (init/pull/push), not whether
+a commit ever happened.
+
+- `idle_secs` now skips `.git` **and** `meta/git.json`. Two tests cover it
+  (both fail if the exclusion is removed): an hour-idle dirty vault commits,
+  and the tick's own state write does not reset the idle clock.
+- `meta/git.json` joined `meta/embeddings.json` in `.gitignore`, and
+  `ensure_repo` now tops up missing ignore lines in an **existing** repo (it
+  used to return early). Without this a tracked `git.json` would be dirty
+  every cycle and produce an auto-commit per idle window containing nothing but
+  a timestamp — `bookkeeping_churn_alone_never_commits` pins that.
+- If a vault already has `meta/git.json` tracked, `git rm --cached
+  meta/git.json` once; the ignore line alone will not untrack it.
+
 ## Testing
 
 Port zosmaai's test philosophy: vault-format roundtrips,

@@ -21,7 +21,7 @@ pub fn idle_secs_from_env() -> u64 {
     crate::config::get().git_idle_secs
 }
 
-const GITIGNORE: &str = "meta/embeddings.json\n.obsidian/workspace*\n*.tmp\n";
+const GITIGNORE: &str = "meta/embeddings.json\nmeta/git.json\n.obsidian/workspace*\n*.tmp\n";
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
@@ -52,15 +52,17 @@ pub fn is_repo(root: &Path) -> bool {
 }
 
 /// Init + .gitignore + initial commit when no repo exists. Returns `true`
-/// when it created the repo. Never touches an existing repo.
+/// when it created the repo. Never touches an existing repo's history, but
+/// does top up the ignore lines, so repos created by an older server pick up
+/// bookkeeping paths added since.
 pub fn ensure_repo(root: &Path) -> Result<bool, String> {
-    if is_repo(root) {
-        return Ok(false);
+    let fresh = !is_repo(root);
+    if fresh {
+        git(root, &["init", "-q"])?;
     }
-    git(root, &["init", "-q"])?;
-    let gi = root.join(".gitignore");
-    if !gi.exists() {
-        std::fs::write(&gi, GITIGNORE).map_err(|e| e.to_string())?;
+    ensure_gitignore(root)?;
+    if !fresh {
+        return Ok(false);
     }
     git(root, &["add", "-A"])?;
     // Empty vault still gets its root commit so pull/push have a base.
@@ -77,26 +79,58 @@ pub fn ensure_repo(root: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Add any missing ignore lines, keeping hand-written ones. Server bookkeeping
+/// must stay out of commits: `meta/git.json` is rewritten every tick, so a
+/// tracked copy would be dirty forever and produce an auto-commit every idle
+/// window containing nothing but a timestamp.
+fn ensure_gitignore(root: &Path) -> Result<(), String> {
+    let path = root.join(".gitignore");
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let missing: Vec<&str> = GITIGNORE
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !existing.lines().any(|e| e.trim() == l.trim()))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let mut out = existing;
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&missing.join("\n"));
+    out.push('\n');
+    std::fs::write(&path, out).map_err(|e| e.to_string())
+}
+
 pub fn dirty(root: &Path) -> bool {
     git(root, &["status", "--porcelain"])
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false)
 }
 
-/// Seconds since the newest file under root changed (`.git` excluded).
-/// Returns `u64::MAX` when nothing is there to measure.
+/// Seconds since the newest **content** file under root changed. Excludes
+/// `.git` and the server's own `meta/git.json`.
+///
+/// That exclusion is load-bearing: `tick` rewrites `meta/git.json` every
+/// cycle, so counting it would reset the very idle clock the tick just
+/// measured. With the default interval (60s) below the default idle window
+/// (300s) the commit gate could then never open, and the vault would never
+/// auto-commit. Returns `u64::MAX` when nothing is there to measure.
 pub fn idle_secs(root: &Path) -> u64 {
-    fn newest(dir: &Path, best: &mut Option<SystemTime>) {
+    fn newest(dir: &Path, skip: &Path, best: &mut Option<SystemTime>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
         for e in entries.filter_map(|e| e.ok()) {
             let p = e.path();
+            if p == *skip {
+                continue;
+            }
             if p.file_name().map(|n| n == ".git").unwrap_or(false) {
                 continue;
             }
             if p.is_dir() {
-                newest(&p, best);
+                newest(&p, skip, best);
             } else if let Ok(m) = e.metadata().and_then(|m| m.modified()) {
                 if best.is_none_or(|b| m > b) {
                     *best = Some(m);
@@ -105,7 +139,7 @@ pub fn idle_secs(root: &Path) -> u64 {
         }
     }
     let mut best = None;
-    newest(root, &mut best);
+    newest(root, &state_path(root), &mut best);
     best.and_then(|b| SystemTime::now().duration_since(b).ok())
         .map(|d| d.as_secs())
         .unwrap_or(u64::MAX)
@@ -295,11 +329,49 @@ pub fn spawn_git(
 mod tests {
     use super::*;
 
+    /// Move a file's mtime into the past without adding a dependency.
+    fn backdate(p: &Path, secs: u64) {
+        let f = std::fs::File::options().write(true).open(p).unwrap();
+        f.set_times(
+            std::fs::FileTimes::new().set_modified(SystemTime::now() - Duration::from_secs(secs)),
+        )
+        .unwrap();
+    }
+
+    /// Age every file under `root` (`.git` excluded) so the vault reads as
+    /// idle, the way it would after a quiet hour.
+    fn age_all(root: &Path, secs: u64) {
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for p in entries.filter_map(|e| e.ok()).map(|e| e.path()) {
+                if p.file_name().map(|n| n == ".git").unwrap_or(false) {
+                    continue;
+                }
+                if p.is_dir() {
+                    stack.push(p);
+                } else {
+                    backdate(&p, secs);
+                }
+            }
+        }
+    }
+
     fn fresh_repo() -> tempfile::TempDir {
         let tmp = tempfile::tempdir().unwrap();
         if git(tmp.path(), &["init", "-q"]).is_err() {
             panic!("git binary required for git tests");
         }
+        tmp
+    }
+
+    /// A repo created the way the vault's is: `ensure_repo` also writes the
+    /// `.gitignore` that keeps server bookkeeping out of commits.
+    fn fresh_wiki_repo() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        ensure_repo(tmp.path()).unwrap();
         tmp
     }
 
@@ -324,6 +396,102 @@ mod tests {
         assert!(!dirty(tmp.path()));
         assert!(!commit_all(tmp.path(), "wiki: auto-commit t2").unwrap());
         assert!(idle_secs(tmp.path()) < 60);
+    }
+
+    #[test]
+    fn bookkeeping_churn_alone_never_commits() {
+        let tmp = fresh_wiki_repo();
+        // Each tick rewrites meta/git.json. On its own that must not produce a
+        // commit: it would be one commit per idle window containing only a
+        // changed timestamp, forever.
+        for i in 0..3 {
+            age_all(tmp.path(), 3600);
+            let (lines, _) = tick(tmp.path(), 300, &format!("2026-01-01T00:0{i}:00Z"));
+            assert!(
+                !lines.iter().any(|l| l.contains("committed")),
+                "tick {i} committed bookkeeping churn: {lines:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ensure_repo_tops_up_ignore_lines_without_recording() {
+        let tmp = fresh_repo();
+        std::fs::write(tmp.path().join(".gitignore"), "target/\n").unwrap();
+        assert!(
+            !ensure_repo(tmp.path()).unwrap(),
+            "an existing repo is never re-created"
+        );
+        let gi = std::fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
+        assert!(gi.contains("target/"), "hand-written lines are kept");
+        assert!(gi.contains("meta/git.json"), "bookkeeping is now ignored");
+        // Idempotent.
+        ensure_repo(tmp.path()).unwrap();
+        assert_eq!(
+            gi,
+            std::fs::read_to_string(tmp.path().join(".gitignore")).unwrap()
+        );
+    }
+
+    #[test]
+    fn tick_commits_an_idle_dirty_vault() {
+        let tmp = fresh_wiki_repo();
+        let page = tmp.path().join("wiki/note.md");
+        std::fs::create_dir_all(page.parent().unwrap()).unwrap();
+        std::fs::write(&page, "content\n").unwrap();
+
+        // Content an hour old, plus the bookkeeping a tick 60s ago would have
+        // left behind — exactly what the 60s tick loop produces. Counting that
+        // fresh `meta/git.json` as activity is what stalled every commit.
+        age_all(tmp.path(), 3600);
+        write_state(
+            tmp.path(),
+            &GitState {
+                last_tick: "2026-01-01T00:04:00Z".into(),
+                ok: true,
+                detail: "in sync".into(),
+                head: head(tmp.path()),
+            },
+        );
+        assert!(
+            idle_secs(tmp.path()) >= 300,
+            "content is idle; only server bookkeeping is fresh"
+        );
+
+        let (lines, _) = tick(tmp.path(), 300, "2026-01-01T00:05:00Z");
+        assert!(
+            lines.iter().any(|l| l.contains("committed")),
+            "an hour-idle dirty vault must auto-commit, got {lines:?}"
+        );
+        assert!(!dirty(tmp.path()), "working tree clean after the commit");
+        assert!(read_state(tmp.path()).unwrap().ok);
+
+        // The vault is still dirty only in ignored bookkeeping, so a further
+        // idle tick has nothing left to commit.
+        age_all(tmp.path(), 3600);
+        let (lines, _) = tick(tmp.path(), 300, "2026-01-01T00:10:00Z");
+        assert!(
+            !lines.iter().any(|l| l.contains("committed")),
+            "no repeat commit: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn tick_does_not_reset_the_idle_clock_it_reads() {
+        let tmp = fresh_wiki_repo();
+        let page = tmp.path().join("wiki/note.md");
+        std::fs::create_dir_all(page.parent().unwrap()).unwrap();
+        std::fs::write(&page, "content\n").unwrap();
+        age_all(tmp.path(), 3600);
+        assert!(idle_secs(tmp.path()) >= 3600);
+
+        // A tick writes meta/git.json. That bookkeeping must not count as
+        // vault activity, or the idle window can never elapse.
+        let (_, _) = tick(tmp.path(), 300, "2026-01-01T00:00:00Z");
+        assert!(
+            idle_secs(tmp.path()) >= 3600,
+            "the git tick's own state write reset the idle clock"
+        );
     }
 
     #[test]
