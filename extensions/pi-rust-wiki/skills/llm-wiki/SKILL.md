@@ -113,6 +113,7 @@ wiki_search(query="broad topic")
 - `wiki_template` — Authoritative page scaffold per type (`{date}` filled, `{title}` placeholder) `[remote]`
 - `wiki_read_page` — Read a page by id `[remote]`
 - `wiki_write_page` — Guarded update (requires frontmatter fence) `[remote]`
+- `wiki_delete_page` — Delete a page (irreversible; needs operator `allow_delete`, `confirm` repeating the id, and no remaining inbound links unless `force`). Use only on explicit user approval, never from a background worker `[remote]`
 - `wiki_ensure_personal_page` / `wiki_write_personal_page` — Personal-layer writes, no switch `[remote]`
 - `wiki_recall` — Layered relevance search (space + personal)
 - `wiki_capture_trajectory` / `wiki_distill_skills` / `wiki_recall_skill` — Working-memory trio (packets, distillation, skill recall)

@@ -4,7 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG, loadConfig, type AutopilotConfig } from "./lib/config.js";
 import { ensureWikiReady } from "./lib/bootstrap.js";
 import { buildResearchNudge } from "./lib/messages.js";
-import { buildEvidence, isMutatingTool, shouldFireRetro, spawnWorker } from "./lib/retro.js";
+import { buildEvidence, isMutatingTool, shouldFireRetro, spawnWorker, transcriptWindow } from "./lib/retro.js";
 import { spawnDiscoverWorker } from "./lib/discover.js";
 import { notify } from "./lib/notify.js";
 import {
@@ -46,6 +46,12 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
   let discoverRuns = 0;
   let mutatingCalls = 0;
   let retroProposed = false;
+  // Retro evidence window. `lastRetroFireMs` bounds each run to the interval
+  // since the previous one, and `recordedRetroIds` names what earlier runs
+  // wrote — without both, two runs over one long session re-read the same
+  // evidence and restate the same insight under a second slug.
+  let lastRetroFireMs: number | null = null;
+  let recordedRetroIds: string[] = [];
   // Single-flight: retro and discovery never run at once. A window that
   // finds the flag set keeps its counters and retries on the next run.
   let workerInFlight = false;
@@ -101,6 +107,8 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     discoverRuns = 0;
     mutatingCalls = 0;
     retroProposed = false;
+    lastRetroFireMs = null;
+    recordedRetroIds = [];
     bootstrapRan = false;
     pinnedSpace = null;
     wikiName = deriveWikiName(ctx.cwd);
@@ -232,7 +240,8 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     // A worker is already running — keep the counters so the next settled
     // run retries this window instead of dropping it.
     if (workerInFlight) return;
-    const evidence = buildEvidence(ctx.cwd, space, mutatingCalls);
+    const fireMs = Date.now();
+    const evidence = buildEvidence(ctx.cwd, space, mutatingCalls, lastRetroFireMs, recordedRetroIds);
     // Transcript access: the worker judges non-triviality from the session
     // itself (analysis/decisions live there, not in git). Best-effort —
     // the worker falls back to git evidence when the file is unavailable.
@@ -242,6 +251,10 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
     } catch {
       sessionFile = "";
     }
+    // Cut the transcript to this window; "" means fall back to the whole
+    // file with a read-the-tail instruction (first fire, or no timestamps).
+    const slice = transcriptWindow(sessionFile, lastRetroFireMs, space);
+    lastRetroFireMs = fireMs;
     settledRuns = 0;
     mutatingCalls = 0;
     retroProposed = true;
@@ -257,8 +270,10 @@ export default function llmWikiAutopilot(pi: ExtensionAPI, deps: ExtensionDeps =
           skillPath("retro"),
           space,
           logPath,
-          sessionFile,
+          slice || sessionFile,
+          Boolean(slice),
         );
+        recordedRetroIds = [...recordedRetroIds, ...(r.ids ?? [])].slice(-30);
         notify(ctx, `[rust-wiki] retro: ${r.summary}`, r.ok ? "info" : "warning");
       } catch (err) {
         notify(ctx, `[rust-wiki] retro worker failed: ${(err as Error).message}`, "warning");

@@ -4,6 +4,8 @@ import { appendFileSync, openSync } from "node:fs";
 export interface WorkerResult {
   ok: boolean;
   summary: string;
+  /** Page ids the worker reported in `... DONE pages=n [<ids>]` (empty when absent). */
+  ids: string[];
 }
 
 /** Best-effort synchronous command — never throws, returns a marker instead. */
@@ -16,6 +18,26 @@ export function sh(cmd: string, args: string[], cwd: string): string {
 }
 
 const REPORT_RE = /((?:RETRO|SWEEP|BACKFILL|DISCOVER) DONE.*)/;
+
+/**
+ * Parse a worker's final report line into the summary the UI shows and the
+ * page ids it wrote. The ids matter beyond display: the next retro run passes
+ * them back as "already recorded" so consecutive windows over one long session
+ * stop restating the same insight.
+ */
+export function parseReport(tail: string): { summary: string; ids: string[] } {
+  const m = tail.match(REPORT_RE);
+  if (!m) return { summary: "worker done, no report line", ids: [] };
+  const summary = m[1].trim();
+  const bracketed = summary.match(/\[([^\]]*)\]/);
+  const ids = bracketed
+    ? bracketed[1]
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    : [];
+  return { summary, ids };
+}
 
 /**
  * Spawn a headless worker as an extension-side background process — zero model
@@ -34,7 +56,7 @@ export function runWorker(prompt: string, logPath: string, cwd: string): Promise
       appendFileSync(logPath, `\n=== run ${new Date().toISOString()} ===\n`);
       logFd = openSync(logPath, "a");
     } catch (err) {
-      resolve({ ok: false, summary: `cannot open log: ${(err as Error).message}` });
+      resolve({ ok: false, summary: `cannot open log: ${(err as Error).message}`, ids: [] });
       return;
     }
     const child = spawn("pi", ["-p", prompt], {
@@ -42,15 +64,15 @@ export function runWorker(prompt: string, logPath: string, cwd: string): Promise
       stdio: ["ignore", logFd, logFd],
       detached: false,
     });
-    child.on("error", (err) => resolve({ ok: false, summary: `spawn failed: ${err.message}` }));
+    child.on("error", (err) => resolve({ ok: false, summary: `spawn failed: ${err.message}`, ids: [] }));
     child.on("close", (code) => {
       if (code !== 0) {
-        resolve({ ok: false, summary: `worker exited ${code} (log: ${logPath})` });
+        resolve({ ok: false, summary: `worker exited ${code} (log: ${logPath})`, ids: [] });
         return;
       }
       const tail = sh("tail", ["-5", logPath], cwd);
-      const m = tail.match(REPORT_RE);
-      resolve({ ok: true, summary: m ? m[1] : "worker done, no report line" });
+      const { summary, ids } = parseReport(tail);
+      resolve({ ok: true, summary, ids });
     });
   });
 }

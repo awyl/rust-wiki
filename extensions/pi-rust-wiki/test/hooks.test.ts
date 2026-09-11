@@ -213,6 +213,63 @@ describe("retro", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("RETRO DONE"), "info");
   });
 
+  it("windows the second fire to the first, and names what was already recorded", async () => {
+    const { ensureWikiReadyFn } = recorder();
+    const spawned: any[] = [];
+    const { handlers } = await loadExtension({
+      ensureWikiReadyFn,
+      spawnWorkerFn: (async (...a: any[]) => {
+        spawned.push(a);
+        return { ok: true, summary: "RETRO DONE pages=1", ids: ["sources/first-insight"] };
+      }) as any,
+    });
+    // A session whose entries straddle the first fire: the "ancient" entry is
+    // before it, the "in-window" one after (future stamp, any now() is past it).
+    const dir = mkdtempSync(join(tmpdir(), "llm-wiki-session-"));
+    const sessionFile = join(dir, "s.jsonl");
+    writeFileSync(
+      sessionFile,
+      ["ancient", "in-window"]
+        .map((body, i) =>
+          JSON.stringify({
+            type: "message",
+            timestamp: i === 0 ? "2020-01-01T00:00:00Z" : "2099-01-01T00:00:00Z",
+            body,
+          }),
+        )
+        .join("\n") + "\n",
+    );
+    try {
+      const ctx = { ...fakeCtx(HERMETIC_CWD), sessionManager: { getSessionFile: () => sessionFile } };
+      await handlers.get("session_start")!({ reason: "startup" }, ctx);
+      const toolCall = handlers.get("tool_call")!;
+      const settled = handlers.get("agent_settled")!;
+      for (let i = 0; i < 16; i++) {
+        await toolCall(mutate, {});
+        await settled({}, ctx);
+      }
+      await new Promise((r) => setImmediate(r));
+      expect(spawned).toHaveLength(2);
+
+      // First fire: whole session, nothing recorded yet, no slice to hand over.
+      // (Its evidence is covered in retro.test.ts — the file path is per-space
+      // and already overwritten by the second fire by the time we read it.)
+      expect(spawned[0][5]).toBe(sessionFile); // full transcript
+      expect(spawned[0][6]).toBe(false);
+
+      // Second fire: bounded window, plus the first run's ids as a no-restate list.
+      const second = readFileSync(spawned[1][1], "utf-8");
+      expect(second).toContain("Window: work since");
+      expect(second).toContain("- sources/first-insight");
+      expect(spawned[1][6]).toBe(true); // transcript handed over pre-cut
+      const slice = readFileSync(spawned[1][5], "utf-8");
+      expect(slice).toContain("in-window");
+      expect(slice).not.toContain("ancient");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("default fires every window — the worker judges triviality from the transcript", async () => {
     const { ensureWikiReadyFn } = recorder();
     let spawns = 0;

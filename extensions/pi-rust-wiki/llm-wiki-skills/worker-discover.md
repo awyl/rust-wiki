@@ -85,6 +85,8 @@ from your stdout, nothing else.
   `DISCOVER DONE captured=0 topic=<topic> (obstacle: ...)` is a better
   outcome than twenty searches that find nothing.
 - Capture only what you actually fetched from a real URL.
+- NEVER DELETE: `wiki_delete_page` is not for you. It is irreversible and
+  needs explicit user approval — a background worker has no one to ask.
 - Depth over volume: one good source beats three shallow ones.
 - Finding nothing worth capturing is a valid outcome —
   `DISCOVER DONE captured=0 topic=none` and stop.
