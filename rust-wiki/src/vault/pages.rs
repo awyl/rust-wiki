@@ -15,7 +15,23 @@ pub const PAGE_TYPES: &[(&str, &str)] = &[
     ("requirement", "requirements"),
     ("skill", "skills"),
     ("case", "cases"),
+    // `sources/` is shared by three types: `source` pages are captured
+    // material, `retro` pages are session insights written by `pages::retro`,
+    // and `observation` pages are mid-session notes written by
+    // `pages::observe`. All three live there, so a folder must never be
+    // guessed from a page type — link to the id a tool returned.
+    ("source", "sources"),
+    ("retro", "sources"),
 ];
+
+/// Every creatable page type, for error messages that cannot go stale.
+pub fn known_types() -> String {
+    PAGE_TYPES
+        .iter()
+        .map(|(t, _)| *t)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 pub fn folder_for(page_type: &str) -> Option<&'static str> {
     PAGE_TYPES
@@ -118,11 +134,10 @@ fn fill_template(raw: &str, title: &str) -> String {
 /// with `{date}` filled and `{title}` left as a placeholder for the caller.
 /// Lets agents always scaffold from the server's current templates.
 pub fn template(vault: &VaultPaths, page_type: &str) -> Result<String, String> {
-    // Templates exist for the four ensure_page types plus `source`
-    // (skeleton pages from capture); source *pages* are system-written.
-    if folder_for(page_type).is_none() && page_type != "source" {
+    if folder_for(page_type).is_none() {
         return Err(format!(
-            "unknown page type '{page_type}' — expected one of: entity, concept, synthesis, analysis, requirement, source"
+            "unknown page type '{page_type}' — expected one of: {}",
+            known_types()
         ));
     }
     let path = vault.templates().join(format!("{page_type}.md"));
@@ -141,7 +156,10 @@ pub fn ensure_page(
     gate: GateMode,
 ) -> Result<(String, bool), String> {
     let Some(folder) = folder_for(page_type) else {
-        return Err(format!("unknown page type '{page_type}' — expected one of: entity, concept, synthesis, analysis, requirement"));
+        return Err(format!(
+            "unknown page type '{page_type}' — expected one of: {}",
+            known_types()
+        ));
     };
     let slug = slugify(title);
     if !valid_slug(&slug) {
@@ -382,8 +400,18 @@ mod tests {
         assert!(!body.contains("{date}")); // filled with today
         let src = template(&v, "source").unwrap();
         assert!(src.contains("format: article"));
+        // `retro` shares the `sources/` folder; the scaffold exists so
+        // ensure_page can create one on demand.
+        let ret = template(&v, "retro").unwrap();
+        assert!(ret.starts_with("---\ntype: retro"));
+        let (id, created) =
+            ensure_page(&v, "retro", "Made Up Folders", None, GateMode::Off).unwrap();
+        assert!(created);
+        assert_eq!(id, "sources/made-up-folders");
         let err = template(&v, "nope").unwrap_err();
         assert!(err.contains("unknown page type"));
+        // The message is derived from PAGE_TYPES, so it cannot go stale.
+        assert!(err.contains("requirement") && err.contains("retro"));
     }
 
     #[test]
@@ -398,10 +426,11 @@ mod tests {
             "analysis",
             "synthesis",
             "requirement",
+            "retro",
         ] {
             let scaffold = template(&v, t).unwrap().replace("{title}", "Probe");
             let folder = match t {
-                "source" => "sources",
+                "source" | "retro" => "sources",
                 "requirement" => "requirements",
                 _ => "concepts",
             };
@@ -411,7 +440,7 @@ mod tests {
         }
         let reg = super::super::registry::rebuild_metadata(&v).unwrap();
         assert!(reg.diagnostics.is_empty(), "{:?}", reg.diagnostics);
-        assert_eq!(reg.pages.len(), 6);
+        assert_eq!(reg.pages.len(), 7);
     }
 
     #[test]

@@ -229,11 +229,62 @@ fn page_id_of(vault: &VaultPaths, file: &Path) -> Option<String> {
 
 // ---------- scan + projections ----------
 
+/// Point links at a page whose folder was guessed wrong.
+///
+/// Writers occasionally infer a folder from a page type — `/retros/<slug>.md`
+/// for an insight that `pages::retro` actually writes to `sources/` — which
+/// lint then reports as a missing page. When such a link's basename matches
+/// exactly one page, retarget it; when the basename is ambiguous (the same
+/// slug in two folders) leave it dangling, so lint reports it instead of us
+/// silently choosing a target.
+fn resolve_guessed_folders(registry: &mut Registry) {
+    let mut by_slug: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for id in registry.pages.keys() {
+        if let Some((_, slug)) = id.rsplit_once('/') {
+            by_slug
+                .entry(slug.to_string())
+                .or_default()
+                .push(id.clone());
+        }
+    }
+    // Plan against an immutable borrow, then apply: the target is a page id,
+    // and the citing page is the one being mutated.
+    let mut remap: Vec<(String, String, String)> = Vec::new();
+    for (id, page) in &registry.pages {
+        for link in &page.links {
+            if registry.pages.contains_key(link) {
+                continue;
+            }
+            let Some((_, slug)) = link.rsplit_once('/') else {
+                continue;
+            };
+            match by_slug.get(slug).map(|v| v.as_slice()) {
+                Some([only]) if only != link => {
+                    remap.push((id.clone(), link.clone(), only.clone()))
+                }
+                _ => {}
+            }
+        }
+    }
+    for (id, from, to) in remap {
+        if let Some(page) = registry.pages.get_mut(&id) {
+            for link in page.links.iter_mut() {
+                if *link == from {
+                    *link = to.clone();
+                }
+            }
+            page.links.sort();
+            page.links.dedup();
+        }
+    }
+}
+
 /// Scan `wiki/**/*.md` and rebuild registry.json + backlinks.json + index.md.
 pub fn rebuild_metadata(vault: &VaultPaths) -> Result<Registry, String> {
     let mut registry = Registry::default();
     let wiki_dir = vault.wiki_pages();
     collect_pages(vault, &wiki_dir, &mut registry)?;
+    resolve_guessed_folders(&mut registry);
     registry.diagnostics.sort();
     registry.diagnostics.dedup();
     // sort links for deterministic output
@@ -449,6 +500,56 @@ mod tests {
         let p = v.page_path(id);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, body).unwrap();
+    }
+
+    #[test]
+    fn a_link_into_a_guessed_folder_finds_the_page() {
+        let (_tmp, v) = setup_vault();
+        // An insight written by `pages::retro` lives in sources/, but the
+        // citing page guessed `retros/` from the type.
+        write_page(
+            &v,
+            "sources/chunk-level-embeddings",
+            "---\ntype: retro\ntitle: chunks\n---\n\nInsight.\n",
+        );
+        write_page(
+            &v,
+            "concepts/embeddings",
+            "---\ntype: concept\ntitle: embeddings\n---\n\nSee [chunks](/retros/chunk-level-embeddings.md).\n",
+        );
+        let reg = rebuild_metadata(&v).unwrap();
+        assert_eq!(
+            reg.pages["concepts/embeddings"].links,
+            vec!["sources/chunk-level-embeddings"]
+        );
+        let backlinks: BTreeMap<String, Vec<String>> =
+            serde_json::from_str(&fs::read_to_string(v.backlinks_file()).unwrap()).unwrap();
+        assert_eq!(
+            backlinks["sources/chunk-level-embeddings"],
+            vec!["concepts/embeddings"]
+        );
+        // The guessed id is gone, so lint no longer reports a missing page.
+        assert!(!backlinks.contains_key("retros/chunk-level-embeddings"));
+    }
+
+    #[test]
+    fn an_ambiguous_basename_is_left_dangling() {
+        let (_tmp, v) = setup_vault();
+        // Same slug in two folders: picking one would be a guess, so the link
+        // stays broken and lint keeps reporting it.
+        write_page(&v, "sources/dupe", "---\ntype: retro\ntitle: a\n---\n\na\n");
+        write_page(
+            &v,
+            "concepts/dupe",
+            "---\ntype: concept\ntitle: b\n---\n\nb\n",
+        );
+        write_page(
+            &v,
+            "concepts/citing",
+            "---\ntype: concept\ntitle: c\n---\n\nSee [x](/retros/dupe.md).\n",
+        );
+        let reg = rebuild_metadata(&v).unwrap();
+        assert_eq!(reg.pages["concepts/citing"].links, vec!["retros/dupe"]);
     }
 
     #[test]

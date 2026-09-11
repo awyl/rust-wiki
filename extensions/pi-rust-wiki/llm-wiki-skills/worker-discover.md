@@ -58,9 +58,14 @@ from your stdout, nothing else.
      `entities/`, sources → `sources/`, syntheses → `syntheses/`, analyses →
      `analyses/`. A source page NEVER lives under `concepts/`, and one thing
      gets exactly ONE page — never `entities/cohere` *and* `concepts/cohere`.
-   - **Link form:** root-relative `/folder/page.md`, e.g. `/entities/nomic-ai.md`.
-     Never prefix the space name — `/default/entities/...` is wrong, the space
-     root is already implicit — and never write a bare slug.
+    - **Link form:** root-relative `/folder/page.md`, e.g. `/entities/nomic-ai.md`.
+      Never prefix the space name — `/default/entities/...` is wrong, the space
+      root is already implicit — and never write a bare slug.
+    - **Never invent a folder.** Take the path from the id the tool returned
+      (`wiki_ensure_page`/`wiki_capture_source` print it) or from `wiki_search`
+      for a page that already exists. Guessing a folder from a page type is the
+      main source of dangling links: `sources/` holds source pages *and*
+      retro/observation pages, so `/retros/...` does not exist.
    - Every new page links to at least one existing page, and entities link to
      the concept/source pages that introduced them.
 7. Quality gate: `wiki_lint` with `auto_fix: true`; fix what it reports.

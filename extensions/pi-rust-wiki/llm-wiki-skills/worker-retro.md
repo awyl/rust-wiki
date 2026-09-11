@@ -45,8 +45,10 @@ distinct findings into multiple calls.
    - Updates → `wiki_read_page` then `wiki_write_page` with the full
      edited document (frontmatter fence preserved — fenceless writes are
      rejected).
-   - Cross-link generously: `[label](/folder/page.md)` to pages you
-     created or that already exist (check with `wiki_search`).
+- Cross-link generously: `[label](/folder/page.md)` to pages you
+      created or that already exist (check with `wiki_search`). Use the exact
+      id a tool returned — never invent a folder from the page type (`sources/`
+      holds retros and observations too, so `/retros/...` does not exist).
 4. Quality gate: call `wiki_lint` with `auto_fix: true`. Fix what it
    reports (orphans get links, missing pages get stubs + content).
 5. Verify: `wiki_status` — health must not be "empty".

@@ -85,6 +85,13 @@ const TEMPLATES: &[(&str, &str)] = &[
         "requirement",
         "---\ntype: requirement\ntitle: \"{title}\"\nstatus: draft\npriority: p2\ncreated: {date}\nupdated: {date}\nsource_id: \ndepends_on: []\n---\n\n# {title}\n\n## Description\n\n\n## Acceptance Criteria\n\n- [ ] \n\n## Links\n\n",
     ),
+    (
+        // Lives in `sources/` alongside captured material; written by
+        // `pages::retro` for the common case, by `ensure_page` when a caller
+        // wants the scaffold.
+        "retro",
+        "---\ntype: retro\ntitle: \"{title}\"\ncategory: \nstatus: active\ncreated: {date}\nupdated: {date}\ntags: []\n---\n\n# {title}\n\n## Insight\n\n\n## Evidence\n\n\n## Consequences\n\n\n## Related\n\n",
+    ),
 ];
 
 /// Create the vault at `vault` if missing. Existing files are never overwritten.

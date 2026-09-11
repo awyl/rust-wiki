@@ -73,6 +73,17 @@ pub fn rpc_err(id: Option<Value>, code: i64, message: String) -> RpcResponse {
 // ---------- tool catalog ----------
 
 /// (name, description, inputSchema) — explicit wire contract.
+/// Page types the creation tools accept, read from the vault's single source
+/// of truth so the published schema cannot drift from `pages::PAGE_TYPES`.
+fn page_type_enum() -> Value {
+    Value::Array(
+        crate::vault::pages::PAGE_TYPES
+            .iter()
+            .map(|(t, _)| Value::String((*t).to_string()))
+            .collect(),
+    )
+}
+
 fn tools() -> &'static [(&'static str, &'static str, Value)] {
     static TOOLS: std::sync::OnceLock<Vec<(&'static str, &'static str, Value)>> =
         std::sync::OnceLock::new();
@@ -109,11 +120,11 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
             "mark_ingested": {"type": "array", "items": {"type": "string"}}
         }
     })),
-    ("wiki_ensure_page", "Create an entity/concept/synthesis/analysis/requirement page (no overwrite).", json!({
+    ("wiki_ensure_page", "Create a wiki page of the given type (no overwrite).", json!({
         "type": "object",
         "properties": {
             "space": {"type": "string"},
-            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis", "requirement"]},
+            "type": {"type": "string", "enum": page_type_enum()},
             "title": {"type": "string"},
             "content": {"type": "string"}
         },
@@ -123,7 +134,7 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "type": "object",
         "properties": {
             "space": {"type": "string"},
-            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis", "requirement", "source"]}
+            "type": {"type": "string", "enum": page_type_enum()}
         },
         "required": ["type"]
     })),
@@ -142,10 +153,10 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "properties": {"id": {"type": "string"}, "content": {"type": "string"}},
         "required": ["id", "content"]
     })),
-    ("wiki_ensure_personal_page", "Create an entity/concept/synthesis/analysis/requirement page in the PERSONAL/root layer (no overwrite). No space switch needed.", json!({
+    ("wiki_ensure_personal_page", "Create a wiki page of the given type in the PERSONAL/root layer (no overwrite). No space switch needed.", json!({
         "type": "object",
         "properties": {
-            "type": {"type": "string", "enum": ["entity", "concept", "synthesis", "analysis", "requirement"]},
+            "type": {"type": "string", "enum": page_type_enum()},
             "title": {"type": "string"},
             "content": {"type": "string"}
         },
@@ -504,6 +515,31 @@ pub async fn serve(hub: Hub, addr: SocketAddr) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    /// The published schema must offer every type the vault can create, or an
+    /// agent is told a page type does not exist when it does.
+    #[test]
+    fn creation_tools_offer_every_page_type() {
+        let want: Vec<&str> = crate::vault::pages::PAGE_TYPES
+            .iter()
+            .map(|(t, _)| *t)
+            .collect();
+        for name in [
+            "wiki_ensure_page",
+            "wiki_ensure_personal_page",
+            "wiki_template",
+        ] {
+            let (_, _, schema) = tools().iter().find(|(n, _, _)| *n == name).unwrap();
+            let got: Vec<&str> = schema["properties"]["type"]["enum"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{name} has no type enum"))
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            assert_eq!(got, want, "{name} type enum");
+        }
+        assert!(want.contains(&"retro"), "retros must be creatable");
+    }
+
     #[test]
     fn stdio_handler_initialize_and_notification_suppression() {
         let tmp = tempfile::tempdir().unwrap();
@@ -541,6 +577,7 @@ mod tests {
         Hub::with_injections(
             tmp.to_path_buf(),
             Box::new(StaticFetcher),
+            std::sync::Arc::new(crate::vault::convert::DefaultConverter),
             Box::new(|| "2026-09-07T12:00:00Z".into()),
         )
     }
