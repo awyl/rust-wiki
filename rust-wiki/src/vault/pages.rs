@@ -96,13 +96,68 @@ impl GateMode {
 
 /// Pre-write wikilink gate over a body. `existing` = registry page ids.
 /// Returns the (possibly normalized) body or a diagnostic message.
+///
+/// Fenced blocks and inline code spans are skipped: a page that documents
+/// wikilink syntax (`[[folder/page]]` in a code sample) must not have that
+/// sample rewritten into a real link to a page that never existed.
 pub fn apply_gate(body: &str, existing: &Registry, mode: GateMode) -> Result<String, String> {
     if mode == GateMode::Off {
         return Ok(body.to_string());
     }
-    let mut out = body.to_string();
     let re = super::registry::wikilinks();
-    for caps in re.captures_iter(body) {
+    let mut out = String::with_capacity(body.len());
+    let mut fenced = false;
+    for line in body.split_inclusive('\n') {
+        if line.trim_start().starts_with("```") {
+            fenced = !fenced;
+            out.push_str(line);
+        } else if fenced {
+            out.push_str(line);
+        } else {
+            for (segment, is_code) in code_segments(line) {
+                if is_code {
+                    out.push_str(segment);
+                } else {
+                    out.push_str(&gate_segment(segment, re, existing, mode)?);
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Split one line into alternating prose / inline-code segments, keeping the
+/// backticks in the returned slices so the line round-trips unchanged. An
+/// unbalanced trailing backtick leaves the rest of the line as code.
+fn code_segments(line: &str) -> Vec<(&str, bool)> {
+    let mut segments = Vec::new();
+    let mut is_code = false;
+    let mut start = 0;
+    for (idx, ch) in line.char_indices() {
+        if ch != '`' {
+            continue;
+        }
+        let end = if is_code { idx + 1 } else { idx };
+        if end > start {
+            segments.push((&line[start..end], is_code));
+        }
+        start = end;
+        is_code = !is_code;
+    }
+    if start < line.len() {
+        segments.push((&line[start..], is_code));
+    }
+    segments
+}
+
+fn gate_segment(
+    segment: &str,
+    re: &regex::Regex,
+    existing: &Registry,
+    mode: GateMode,
+) -> Result<String, String> {
+    let mut out = segment.to_string();
+    for caps in re.captures_iter(segment) {
         let raw = &caps[1];
         let id = raw.trim();
         if id.is_empty() {
@@ -493,6 +548,31 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("does not resolve"));
+    }
+
+    #[test]
+    fn gate_leaves_code_samples_alone() {
+        let (_t, v) = setup();
+        let (id, _) = ensure_page(&v, "concept", "Rag", None, GateMode::Off).unwrap();
+        let body = "---\ntitle: \"Rag\"\ntype: concept\n---\n\nprose see [[concepts/rag]] ok\n\ninline `[[concepts/missing]]` sample\n\n```\n[[concepts/fenced-missing]]\n```\n";
+        write_page(&v, &id, body, GateMode::Normalize).unwrap();
+        let content = read_page(&v, &id).unwrap();
+        assert!(content.contains("prose see [concepts/rag](/concepts/rag.md) ok"));
+        assert!(
+            content.contains("`[[concepts/missing]]`"),
+            "inline code rewritten: {content}"
+        );
+        assert!(
+            content.contains("[[concepts/fenced-missing]]"),
+            "fenced block rewritten: {content}"
+        );
+    }
+
+    #[test]
+    fn gate_validate_ignores_wikilinks_in_code() {
+        let (_t, v) = setup();
+        let body = "documents the syntax `[[concepts/never-was]]`\n\n```\n[[concepts/nope]]\n```\n";
+        ensure_page(&v, "concept", "Docs", Some(body), GateMode::Validate).unwrap();
     }
 
     #[test]

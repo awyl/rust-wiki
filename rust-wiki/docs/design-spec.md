@@ -148,10 +148,14 @@ import/export, trust scoring).
   nothing in it could link it), missing-page detection, contradiction markers
   (⚠️ Contradiction), gap tracking, auto-stub when a gap is cited in ≥2 pages.
 - Capture: URL fetch + HTML→md, text passthrough, server-local file path;
-  PDF via MarkItDown when available (clean error when absent).
+  PDF via `pdf-extract` (lines and hyphenation tidied), `%PDF-` magic bytes
+  overriding a lying content-type; a PDF without a text layer is refused by
+  name (no OCR).
 - Wikilink gate: `[[folder/page]]` legacy readable; canonical links are
   standard markdown `[label](/folder/page.md)`; validation modes
-  off | validate | normalize.
+  off | validate | normalize. A wikilink written inside a code span or a
+  fenced block is left verbatim in both modes — a page documenting the
+  syntax must not have its own samples rewritten into live links.
 - Templates: page templates per type ship in the vault at bootstrap. A
   re-bootstrap of an existing vault tops up templates added since it was
   created (page types ship as new files) and leaves present ones untouched.
