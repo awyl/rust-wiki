@@ -138,7 +138,8 @@ import/export, trust scoring), embeddings staleness skipping.
 - Registry: `meta/registry.json` master catalog; backlinks; index/log are
   projections rebuilt from `wiki/**` + events; ingest state tracked
   per-source in the registry.
-- Lint: orphan detection, missing-page detection, contradiction markers
+- Lint: orphan detection (a space holding one page is never orphaned —
+  nothing in it could link it), missing-page detection, contradiction markers
   (⚠️ Contradiction), gap tracking, auto-stub when a gap is cited in ≥2 pages.
 - Capture: URL fetch + HTML→md, text passthrough, server-local file path;
   PDF via MarkItDown when available (clean error when absent).

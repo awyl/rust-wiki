@@ -17,8 +17,14 @@ pub struct Status {
     pub health: String,
 }
 
-/// Orphans = pages with no inbound links.
+/// Orphans = pages with no inbound links. A space holding a single page cannot
+/// have inbound links — nothing in it could point at it — so it is not an
+/// orphan, and reporting one made every one-page space (e.g. `personal`) sit
+/// permanently at a nonzero orphan count with nothing to fix.
 pub fn orphans_of(registry: &Registry) -> Vec<String> {
+    if registry.pages.len() < 2 {
+        return Vec::new();
+    }
     let inbound = super::registry::inbound_links(registry);
     let mut out: Vec<String> = registry
         .pages
@@ -100,5 +106,46 @@ mod tests {
         assert_eq!(st.total_pages, 3);
         assert_eq!(st.orphans, 2); // c orphan; a links out but nothing links a
         assert_eq!(st.health, "good");
+    }
+
+    #[test]
+    fn lone_page_space_is_not_orphaned() {
+        let tmp = tempfile::tempdir().unwrap();
+        let v = VaultPaths::new(tmp.path(), "s");
+        bootstrap(&v, "t").unwrap();
+        let mut reg = Registry::default();
+        reg.pages.insert(
+            "concepts/only".into(),
+            super::super::registry::PageEntry {
+                id: "concepts/only".into(),
+                title: "only".into(),
+                page_type: super::super::pages::type_for_folder("concepts"),
+                path: "wiki/concepts/only.md".into(),
+                links: vec![],
+                excerpt: String::new(),
+                description: String::new(),
+                source_id: None,
+            },
+        );
+        assert!(orphans_of(&reg).is_empty());
+        let st = compute(&v, &reg);
+        assert_eq!(st.orphans, 0);
+        assert_eq!(st.health, "good");
+
+        // A second page that links to it proves inbound links still work.
+        reg.pages.insert(
+            "concepts/citer".into(),
+            super::super::registry::PageEntry {
+                id: "concepts/citer".into(),
+                title: "citer".into(),
+                page_type: super::super::pages::type_for_folder("concepts"),
+                path: "wiki/concepts/citer.md".into(),
+                links: vec!["concepts/only".into()],
+                excerpt: String::new(),
+                description: String::new(),
+                source_id: None,
+            },
+        );
+        assert_eq!(orphans_of(&reg), vec!["concepts/citer".to_string()]);
     }
 }
