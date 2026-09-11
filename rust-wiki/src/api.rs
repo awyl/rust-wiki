@@ -100,6 +100,13 @@ pub struct WritePageOut {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct DeletePageOut {
+    pub id: String,
+    pub deleted: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct TemplateOut {
     #[serde(rename = "type")]
     pub page_type: String,
@@ -154,6 +161,10 @@ pub struct StatusOut {
     pub git: Option<crate::vault::git::GitState>,
     /// Version of the running server binary — tells you whether a deploy is live.
     pub server_version: String,
+    /// Whether `wiki_delete_page` is permitted on this server (`allow_delete`
+    /// config key). Reported so an operator can confirm the deploy remotely
+    /// instead of probing with a destructive call.
+    pub allow_delete: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -241,6 +252,16 @@ pub trait WikiApi: Send + Sync {
     ) -> ApiResult<EnsurePageOut>;
     fn read_page(&self, space: &str, id: &str) -> ApiResult<ReadPageOut>;
     fn write_page(&self, space: &str, id: &str, content: &str) -> ApiResult<WritePageOut>;
+    /// Delete a page. `confirm` must repeat `id`, and the server refuses
+    /// unless the operator enabled `allow_delete`; `force` overrides the
+    /// inbound-link refusal.
+    fn delete_page(
+        &self,
+        space: &str,
+        id: &str,
+        confirm: &str,
+        force: bool,
+    ) -> ApiResult<DeletePageOut>;
     /// Authoritative page template for `page_type` (`{date}` filled,
     /// `{title}` left as placeholder). Keeps agents on the server's
     /// current scaffolds without frozen skill-text copies.

@@ -213,6 +213,21 @@ impl EmbeddingStore {
     }
 }
 
+/// Drop a page's vectors after it is deleted.
+///
+/// The semantic candidate pass admits ids straight from this store, so a
+/// deleted page left in here resurfaces in recall as a result that no longer
+/// exists. Best-effort like the upsert: a failed save never blocks the delete.
+pub fn forget_page(vault: &VaultPaths, id: &str) -> bool {
+    let Some(mut store) = EmbeddingStore::load(vault) else {
+        return false;
+    };
+    if store.pages.remove(id).is_none() {
+        return false;
+    }
+    store.save(vault).is_ok()
+}
+
 /// Best-effort single-page upsert after a write (option A: auto-embed on
 /// change). Reads the page body from disk, so vectors always reflect what is
 /// actually stored. Lazy-creates the store (recording the live model) when
@@ -433,6 +448,21 @@ mod tests {
         );
         mk("concepts/quota", "quota", "multi user quota limits");
         (tmp, v, reg)
+    }
+
+    #[test]
+    fn forget_page_drops_only_the_deleted_pages_vectors() {
+        let (_t, v, reg) = setup();
+        reindex(&v, &reg, &MockEmbedder).unwrap();
+        assert!(forget_page(&v, "concepts/quota"));
+        let store = EmbeddingStore::load(&v).unwrap();
+        assert!(!store.pages.contains_key("concepts/quota"));
+        assert!(store.pages.contains_key("concepts/retrieval"));
+        // Unknown id and missing store are both no-ops, not errors.
+        assert!(!forget_page(&v, "concepts/quota"));
+        assert!(!forget_page(&v, "concepts/never-existed"));
+        let (_t2, v2, _r2) = setup();
+        assert!(!forget_page(&v2, "concepts/quota"));
     }
 
     #[test]

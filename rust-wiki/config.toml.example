@@ -36,3 +36,10 @@ git_interval_secs = 60
 # Git idle threshold in seconds before a dirty vault commits.
 # Env: WIKI_GIT_IDLE_SECS. Default: 300.
 git_idle_secs = 300
+
+# Allow wiki_delete_page to remove pages. OFF by default: deletion is the only
+# irreversible tool, so it needs an explicit operator opt-in on top of the
+# caller repeating the page id in `confirm`. Pages are git-backed, so a
+# mistaken delete is recoverable from vault history.
+# Env: WIKI_ALLOW_DELETE (1/true/yes/on). Default: false.
+allow_delete = false

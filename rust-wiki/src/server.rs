@@ -148,6 +148,16 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "properties": {"space": {"type": "string"}, "id": {"type": "string"}, "content": {"type": "string"}},
         "required": ["id", "content"]
     })),
+    ("wiki_delete_page", "Delete a wiki page (irreversible). Requires explicit user approval, refuses while the page is still linked unless force is set, and is disabled unless the operator enabled allow_delete.", json!({
+        "type": "object",
+        "properties": {
+            "space": {"type": "string"},
+            "id": {"type": "string"},
+            "confirm": {"type": "string", "description": "Repeat the exact id being deleted — a deliberate second confirmation."},
+            "force": {"type": "boolean", "description": "Delete even though other pages still link to it (leaves those links dangling)."}
+        },
+        "required": ["id", "confirm"]
+    })),
     ("wiki_write_personal_page", "Update an existing page in the PERSONAL/root layer (cross-project global wiki). The only write path to root — no space switch needed.", json!({
         "type": "object",
         "properties": {"id": {"type": "string"}, "content": {"type": "string"}},
@@ -424,6 +434,12 @@ fn dispatch(
             need_space!(),
             args["id"].as_str().unwrap_or(""),
             args["content"].as_str().unwrap_or(""),
+        )?)?),
+        "wiki_delete_page" => Ok(serde_json::to_value(hub.delete_page(
+            need_space!(),
+            args["id"].as_str().unwrap_or(""),
+            args["confirm"].as_str().unwrap_or(""),
+            args["force"].as_bool().unwrap_or(false),
         )?)?),
         "wiki_write_personal_page" => Ok(serde_json::to_value(hub.write_page(
             crate::vault::layout::SPACE_PERSONAL,

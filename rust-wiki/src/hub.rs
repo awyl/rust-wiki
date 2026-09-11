@@ -19,6 +19,16 @@ use crate::vault::{
 /// A fetch that has not answered in this long is not going to.
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Operator opt-in for the only irreversible tool. A free function so the
+/// gate is testable without touching the process-wide config `OnceLock`.
+fn deletion_allowed(allow: bool) -> Result<(), String> {
+    if allow {
+        Ok(())
+    } else {
+        Err("deletion is disabled on this server — set `allow_delete = true` in config.toml (or WIKI_ALLOW_DELETE=1) to permit wiki_delete_page".to_string())
+    }
+}
+
 /// Seam: fetch a URL and convert to markdown. Production impl uses
 /// reqwest + the shared `Converter`; tests stub it.
 pub trait UrlFetcher: Send + Sync {
@@ -370,6 +380,38 @@ impl WikiApi for Hub {
         })
     }
 
+    /// Delete a wiki page. Two independent guards, both deliberate: the
+    /// operator must enable the tool at all (`allow_delete`), and the caller
+    /// repeats the id in `confirm` so a slip cannot delete a neighbour.
+    fn delete_page(
+        &self,
+        space: &str,
+        id: &str,
+        confirm: &str,
+        force: bool,
+    ) -> ApiResult<DeletePageOut> {
+        deletion_allowed(crate::config::get().allow_delete)
+            .map_err(|e| ApiError::new("permission_denied", e))?;
+        if confirm != id {
+            return Err(ApiError::new(
+                "invalid_argument",
+                format!("confirm must repeat the exact page id ('{id}')"),
+            ));
+        }
+        let v = self.target(Some(space), Some(space))?;
+        let message =
+            vp::delete_page(&v, id, force).map_err(|e| ApiError::new("invalid_argument", e))?;
+        // Vectors outlive the file otherwise: the semantic pass admits ids
+        // straight from the store, so a stale entry becomes a ghost result.
+        crate::vault::embeddings::forget_page(&v, id);
+        let _ = registry::rebuild_metadata(&v);
+        Ok(DeletePageOut {
+            id: id.to_string(),
+            deleted: true,
+            message,
+        })
+    }
+
     fn template(&self, space: &str, page_type: &str) -> ApiResult<TemplateOut> {
         let v = self.target(Some(space), Some(space))?;
         let content = vp::template(&v, page_type).map_err(ApiError::invalid)?;
@@ -468,6 +510,7 @@ impl WikiApi for Hub {
             health: st.health,
             git: crate::vault::git::read_state(&self.root),
             server_version: env!("CARGO_PKG_VERSION").to_string(),
+            allow_delete: crate::config::get().allow_delete,
         })
     }
 
@@ -671,6 +714,23 @@ mod tests {
             Arc::new(DefaultConverter),
             Box::new(|| "2026-09-07T12:00:00Z".into()),
         )
+    }
+
+    #[test]
+    fn deletion_gate_requires_operator_opt_in() {
+        let err = deletion_allowed(false).unwrap_err();
+        // The refusal has to name the knob, or the operator cannot act on it.
+        assert!(err.contains("allow_delete"), "{err}");
+        assert!(err.contains("WIKI_ALLOW_DELETE"), "{err}");
+        assert!(deletion_allowed(true).is_ok());
+    }
+
+    #[test]
+    fn delete_page_checks_the_space_before_anything_else() {
+        let h = hub();
+        assert!(h
+            .delete_page("no-such-space", "concepts/x", "concepts/x", false)
+            .is_err());
     }
 
     struct StaticFetcher;

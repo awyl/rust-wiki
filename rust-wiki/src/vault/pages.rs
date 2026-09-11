@@ -236,6 +236,44 @@ fn read_registry(vault: &VaultPaths) -> Result<Registry, String> {
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }
 
+/// Remove a wiki page and rebuild the metadata so the registry, index and
+/// backlinks stop advertising it.
+///
+/// Refuses while any other page still links to the id (`force` overrides) —
+/// deleting a linked page turns a tidy vault into a lint report. Deletion is
+/// also the only irreversible operation in the tool set, so the caller must
+/// name the page again in `confirm` and the operator must opt in via
+/// `Config::allow_delete` (checked in `hub::delete_page`).
+pub fn delete_page(vault: &VaultPaths, id: &str, force: bool) -> Result<String, String> {
+    if id.contains("..") || id.starts_with('/') {
+        return Err(format!("invalid page id '{id}'"));
+    }
+    let path = vault.page_path(id);
+    if ownership(vault, &path) != Ownership::Wiki {
+        return Err(format!("'{id}' is not a wiki page"));
+    }
+    if !path.exists() {
+        return Err(format!("page '{id}' does not exist"));
+    }
+    if !force {
+        let registry = read_registry(vault)?;
+        let inbound = super::registry::inbound_links(&registry);
+        if let Some(citers) = inbound.get(id).filter(|c| !c.is_empty()) {
+            return Err(format!(
+                "refusing to delete '{id}' — still linked from: {}. Re-point those links first, or pass force: true.",
+                citers.join(", ")
+            ));
+        }
+    }
+    fs::remove_file(&path).map_err(|e| e.to_string())?;
+    // Only succeeds when the folder is empty; a leftover empty dir is harmless.
+    if let Some(parent) = path.parent() {
+        let _ = fs::remove_dir(parent);
+    }
+    rebuild_metadata(vault)?;
+    Ok(format!("deleted '{id}'"))
+}
+
 /// Atomic insight file: wiki/sources/<slug>.md, searchable immediately.
 pub fn retro(
     vault: &VaultPaths,
@@ -332,6 +370,45 @@ mod tests {
         let v = VaultPaths::new(tmp.path(), "s");
         super::super::bootstrap::bootstrap(&v, "t").unwrap();
         (tmp, v)
+    }
+
+    #[test]
+    fn delete_refuses_while_other_pages_link_to_it() {
+        let (_t, v) = setup();
+        let (target, _) = ensure_page(&v, "concept", "Target", None, GateMode::Off).unwrap();
+        ensure_page(
+            &v,
+            "concept",
+            "Citer",
+            Some(&format!("see [{target}](/{target}.md)\n")),
+            GateMode::Off,
+        )
+        .unwrap();
+
+        let err = delete_page(&v, &target, false).unwrap_err();
+        assert!(err.contains("still linked from"), "{err}");
+        assert!(err.contains("concepts/citer"), "{err}");
+
+        // force is the documented override — and it really removes it.
+        assert!(delete_page(&v, &target, true).is_ok());
+        assert!(!v.page_path(&target).exists());
+        let registry = read_registry(&v).unwrap();
+        assert!(!registry.pages.contains_key(&target));
+    }
+
+    #[test]
+    fn delete_reports_unknown_and_traversal_ids() {
+        let (_t, v) = setup();
+        ensure_page(&v, "concept", "Keeper", None, GateMode::Off).unwrap();
+        assert!(delete_page(&v, "concepts/never-existed", false)
+            .unwrap_err()
+            .contains("does not exist"));
+        assert!(delete_page(&v, "../escape", false)
+            .unwrap_err()
+            .contains("invalid page id"));
+        assert!(delete_page(&v, "/etc/passwd", false)
+            .unwrap_err()
+            .contains("invalid page id"));
     }
 
     #[test]

@@ -104,11 +104,12 @@ call; the client timeout is 180s, then warm calls are milliseconds.
   pages there surface in every space's recall (layered recall).
 - Pin a connection: `wiki_use_space` (per-connection, server-side).
 
-## Tools (23)
+## Tools (24)
 
 `wiki_bootstrap`, `wiki_use_space`, `wiki_capture_source`, `wiki_ingest`,
 `wiki_ensure_page`, `wiki_ensure_personal_page`, `wiki_template`,
-`wiki_read_page`, `wiki_write_page`, `wiki_write_personal_page`,
+`wiki_read_page`, `wiki_write_page`, `wiki_delete_page`,
+`wiki_write_personal_page`,
 `wiki_recall`, `wiki_search`, `wiki_retro`, `wiki_observe`, `wiki_lint`,
 `wiki_status`, `wiki_rebuild_meta`, `wiki_watch`,
 `wiki_reindex_embeddings`, `wiki_log_event`, `wiki_capture_trajectory`,
@@ -117,9 +118,24 @@ call; the client timeout is 180s, then warm calls are milliseconds.
 `wiki_watch` with no arguments reports scheduler status;
 `{"run": true}` triggers an immediate all-spaces maintenance cycle.
 
+### Deleting a page
+
+`wiki_delete_page` removes a page and rebuilds the metadata, so the registry,
+index, backlinks and embedding store stop advertising it. It is the only
+irreversible tool, so it carries three guards:
+
+| Guard | Behaviour |
+|---|---|
+| `allow_delete` config (default **false**) | without it every call fails `permission_denied` and names the knob |
+| `confirm` must repeat `id` | a slip cannot delete a neighbouring page |
+| inbound links | refused while other pages still link to it; `force: true` overrides and leaves those links dangling |
+
+Pages are git-backed, so a mistaken delete is recoverable from vault history.
+
 `wiki_status` also reports `server_version` (from the binary's own build),
 and the server logs `rust-wiki v<version>` at boot — either one tells you
-whether a deploy is actually live.
+whether a deploy is actually live. It reports `allow_delete` too, so the
+deletion opt-in can be confirmed remotely instead of probed destructively.
 
 ### Capturing a source
 

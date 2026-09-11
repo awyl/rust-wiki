@@ -32,6 +32,10 @@ pub struct Config {
     pub git_interval_secs: u64,
     /// Git idle threshold (secs) before a dirty vault commits.
     pub git_idle_secs: u64,
+    /// Allow `wiki_delete_page` to remove pages. **Off by default**: deletion
+    /// is the only irreversible tool, so it needs an operator opt-in on top of
+    /// the caller repeating the page id in `confirm`.
+    pub allow_delete: bool,
 }
 
 impl Default for Config {
@@ -46,6 +50,7 @@ impl Default for Config {
             recall_links_first_threshold: 50,
             git_interval_secs: 60,
             git_idle_secs: 300,
+            allow_delete: false,
         }
     }
 }
@@ -62,6 +67,7 @@ struct FileConfig {
     recall_links_first_threshold: Option<u64>,
     git_interval_secs: Option<u64>,
     git_idle_secs: Option<u64>,
+    allow_delete: Option<bool>,
 }
 
 fn env_u64(name: &str) -> Option<u64> {
@@ -70,6 +76,20 @@ fn env_u64(name: &str) -> Option<u64> {
 
 fn env_str(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|s| !s.is_empty())
+}
+
+fn env_bool(name: &str) -> Option<bool> {
+    parse_bool(&env_str(name)?)
+}
+
+/// Accepted spellings for boolean env keys, kept pure so it is testable
+/// without mutating the process environment (which races across tests).
+fn parse_bool(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 impl Config {
@@ -87,6 +107,7 @@ impl Config {
                 .unwrap_or(d.recall_links_first_threshold),
             git_interval_secs: file.git_interval_secs.unwrap_or(d.git_interval_secs),
             git_idle_secs: file.git_idle_secs.unwrap_or(d.git_idle_secs),
+            allow_delete: file.allow_delete.unwrap_or(d.allow_delete),
         }
     }
 
@@ -119,6 +140,9 @@ impl Config {
         }
         if let Some(v) = env_u64("WIKI_GIT_IDLE_SECS") {
             self.git_idle_secs = v;
+        }
+        if let Some(v) = env_bool("WIKI_ALLOW_DELETE") {
+            self.allow_delete = v;
         }
     }
 
@@ -177,6 +201,7 @@ mod tests {
                 "recall_links_first_threshold = 10\n",
                 "git_interval_secs = 30\n",
                 "git_idle_secs = 120\n",
+                "allow_delete = true\n",
             )
         )
         .unwrap();
@@ -191,6 +216,7 @@ mod tests {
             "WIKI_RECALL_LINKS_FIRST_THRESHOLD",
             "WIKI_GIT_INTERVAL_SECS",
             "WIKI_GIT_IDLE_SECS",
+            "WIKI_ALLOW_DELETE",
         ] {
             unsafe { std::env::remove_var(k) };
         }
@@ -203,5 +229,30 @@ mod tests {
         assert_eq!(c.recall_links_first_threshold, 10);
         assert_eq!(c.git_interval_secs, 30);
         assert_eq!(c.git_idle_secs, 120);
+        assert!(c.allow_delete);
+    }
+
+    #[test]
+    fn allow_delete_defaults_off_and_file_can_enable_it() {
+        // Off by default: a server whose operator never asked for deletion
+        // must not expose it (the tool itself refuses with permission_denied).
+        assert!(!Config::default().allow_delete);
+
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        writeln!(f, "allow_delete = true\n").unwrap();
+        unsafe { std::env::remove_var("WIKI_ALLOW_DELETE") };
+        assert!(Config::load_from_file(Some(f.path().to_path_buf())).allow_delete);
+    }
+
+    #[test]
+    fn bool_env_accepts_common_spellings_and_rejects_junk() {
+        // Pure parser: no env mutation, so tests stay race-free.
+        for yes in ["1", "true", "TRUE", "yes", "on", " On "] {
+            assert_eq!(parse_bool(yes), Some(true), "{yes}");
+        }
+        for no in ["0", "false", "no", "off"] {
+            assert_eq!(parse_bool(no), Some(false), "{no}");
+        }
+        assert_eq!(parse_bool("maybe"), None);
     }
 }
