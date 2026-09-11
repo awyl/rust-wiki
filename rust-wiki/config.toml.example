@@ -29,6 +29,22 @@ embedding_model = "text-embedding-3-small"
 # Env: WIKI_RECALL_LINKS_FIRST_THRESHOLD. Default: 50.
 recall_links_first_threshold = 50
 
+# Semantic fusion: minimum best-chunk cosine for a page with no lexical match
+# to be admitted as a retrieval candidate. Lower = more recall, higher = less
+# junk admission. Chosen against the retrieval benchmark (train split) in
+# 2026-09-11: 0.6 keeps all quality with 3x fewer admissions than 0.2.
+# Env: WIKI_RECALL_SEMANTIC_MIN_COSINE. Default: 0.6.
+recall_semantic_min_cosine = 0.6
+
+# Semantic fusion: lexical points a perfect (cosine 1) semantic match is worth
+# at full weight, so it reaches the top-N without outranking a real title hit.
+# Env: WIKI_RECALL_SEMANTIC_SCALE. Default: 6.0.
+recall_semantic_scale = 6.0
+
+# Semantic fusion: weight of the semantic term when blended into the lexical
+# score (0 = lexical only). Env: WIKI_RECALL_SEMANTIC_WEIGHT. Default: 0.5.
+recall_semantic_weight = 0.5
+
 # Git auto-commit tick interval in seconds. 0 disables git backing.
 # Env: WIKI_GIT_INTERVAL_SECS. Default: 60.
 git_interval_secs = 60

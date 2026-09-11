@@ -28,6 +28,17 @@ pub struct Config {
     /// Recall links-first gate: vaults above this page count return links.
     /// 0 = always links-first.
     pub recall_links_first_threshold: u64,
+    /// Semantic fusion: minimum best-chunk cosine for a page with no lexical
+    /// match to be admitted as a candidate. Tuning targets: lower = recall,
+    /// higher = precision (fewer junk admissions).
+    pub recall_semantic_min_cosine: f32,
+    /// Semantic fusion: lexical points a perfect (cosine 1) semantic match is
+    /// worth at full weight (with the 0.5 weight) so it reaches the top-N
+    /// without outranking a real title match on its own.
+    pub recall_semantic_scale: f64,
+    /// Semantic fusion: weight of the semantic term when blending with the
+    /// lexical score.
+    pub recall_semantic_weight: f64,
     /// Git auto-commit tick interval (secs). 0 disables git backing.
     pub git_interval_secs: u64,
     /// Git idle threshold (secs) before a dirty vault commits.
@@ -48,6 +59,9 @@ impl Default for Config {
             embedding_model: "text-embedding-3-small".into(),
             embedding_token: None,
             recall_links_first_threshold: 50,
+            recall_semantic_min_cosine: 0.6,
+            recall_semantic_scale: 6.0,
+            recall_semantic_weight: 0.5,
             git_interval_secs: 60,
             git_idle_secs: 300,
             allow_delete: false,
@@ -65,6 +79,9 @@ struct FileConfig {
     embedding_model: Option<String>,
     embedding_token: Option<String>,
     recall_links_first_threshold: Option<u64>,
+    recall_semantic_min_cosine: Option<f32>,
+    recall_semantic_scale: Option<f64>,
+    recall_semantic_weight: Option<f64>,
     git_interval_secs: Option<u64>,
     git_idle_secs: Option<u64>,
     allow_delete: Option<bool>,
@@ -72,6 +89,14 @@ struct FileConfig {
 
 fn env_u64(name: &str) -> Option<u64> {
     std::env::var(name).ok()?.parse().ok()
+}
+
+fn env_f32(name: &str) -> Option<f32> {
+    std::env::var(name).ok()?.trim().parse().ok()
+}
+
+fn env_f64(name: &str) -> Option<f64> {
+    std::env::var(name).ok()?.trim().parse().ok()
 }
 
 fn env_str(name: &str) -> Option<String> {
@@ -105,6 +130,15 @@ impl Config {
             recall_links_first_threshold: file
                 .recall_links_first_threshold
                 .unwrap_or(d.recall_links_first_threshold),
+            recall_semantic_min_cosine: file
+                .recall_semantic_min_cosine
+                .unwrap_or(d.recall_semantic_min_cosine),
+            recall_semantic_scale: file
+                .recall_semantic_scale
+                .unwrap_or(d.recall_semantic_scale),
+            recall_semantic_weight: file
+                .recall_semantic_weight
+                .unwrap_or(d.recall_semantic_weight),
             git_interval_secs: file.git_interval_secs.unwrap_or(d.git_interval_secs),
             git_idle_secs: file.git_idle_secs.unwrap_or(d.git_idle_secs),
             allow_delete: file.allow_delete.unwrap_or(d.allow_delete),
@@ -134,6 +168,15 @@ impl Config {
         }
         if let Some(v) = env_u64("WIKI_RECALL_LINKS_FIRST_THRESHOLD") {
             self.recall_links_first_threshold = v;
+        }
+        if let Some(v) = env_f32("WIKI_RECALL_SEMANTIC_MIN_COSINE") {
+            self.recall_semantic_min_cosine = v;
+        }
+        if let Some(v) = env_f64("WIKI_RECALL_SEMANTIC_SCALE") {
+            self.recall_semantic_scale = v;
+        }
+        if let Some(v) = env_f64("WIKI_RECALL_SEMANTIC_WEIGHT") {
+            self.recall_semantic_weight = v;
         }
         if let Some(v) = env_u64("WIKI_GIT_INTERVAL_SECS") {
             self.git_interval_secs = v;

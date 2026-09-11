@@ -22,26 +22,34 @@ const W_ID: f64 = 2.0;
 const W_TYPE: f64 = 1.5;
 const W_BODY: f64 = 1.0;
 
-/// Semantic fusion (see `recall_layered_semantic`).
+/// Semantic fusion (see `recall_layered_semantic`). The three knobs are
+/// config-driven (`WIKI_RECALL_SEMANTIC_*`, defaults in `config.rs`) so the
+/// retrieval benchmark can sweep them per-process without recompiling.
 ///
 /// Minimum best-chunk cosine for a page with NO lexical match to be admitted
 /// as a semantic candidate. Keeps the candidate set bounded — near-orthogonal
 /// pages stay out instead of the whole embedded vault entering every query.
-const SEMANTIC_MIN_COSINE: f32 = 0.2;
+pub fn semantic_min_cosine() -> f32 {
+    crate::config::get().recall_semantic_min_cosine
+}
 /// Lexical points a perfect (cosine = 1) semantic match is worth at full
 /// weight. Calibrated against this file's own scale, where a title hit is
 /// `W_TITLE` = 3.0: a perfect semantic match (0.5 x 6.0 = 3.0) lands level with
 /// a title hit, so it can reach the top-N but cannot outrank a real title match
 /// on its own. A strong paraphrase (cosine ~0.84) is worth 2.5.
-const SEMANTIC_SCALE: f64 = 6.0;
+pub fn semantic_scale() -> f64 {
+    crate::config::get().recall_semantic_scale
+}
 /// Blend weight for the semantic signal (0 = lexical only).
-const SEMANTIC_WEIGHT: f64 = 0.5;
+pub fn semantic_weight() -> f64 {
+    crate::config::get().recall_semantic_weight
+}
 
 /// Semantic contribution for a best-chunk cosine. Additive on purpose: a page
 /// with no lexical score has nothing to multiply, so only an additive term can
 /// admit it. `cos <= 0` is the identity, leaving pure-lexical ranking intact.
 fn semantic_score(cos: f32) -> f64 {
-    SEMANTIC_WEIGHT * SEMANTIC_SCALE * f64::from(cos.max(0.0))
+    semantic_weight() * semantic_scale() * f64::from(cos.max(0.0))
 }
 /// Score multiplier for a page's self-declared relevance. `critical`/`high`
 /// lift a page, `low` damps it, and absent (or unrecognised) is 1.0 — a page
@@ -300,7 +308,7 @@ pub fn recall_layered_semantic(
                 continue;
             }
             let sim = super::embeddings::best_similarity(query_vec, &pv.chunks);
-            if sim < SEMANTIC_MIN_COSINE {
+            if sim < semantic_min_cosine() {
                 continue;
             }
             let Some(p) = registry.pages.get(id) else {
@@ -467,7 +475,7 @@ mod tests {
         let reg = rebuild_metadata(&v).unwrap();
         let query = vec![1.0f32, 0.0];
         // Just below SEMANTIC_MIN_COSINE -> stays out of the result set.
-        let store = store_with(&[("concepts/orthogonal", SEMANTIC_MIN_COSINE - 0.01)]);
+        let store = store_with(&[("concepts/orthogonal", semantic_min_cosine() - 0.01)]);
         let (hits, _) = recall_layered_semantic(&v, None, &reg, "zeta", 5, Some((&query, &store)));
         assert!(hits.is_empty(), "near-orthogonal page must not be admitted");
     }

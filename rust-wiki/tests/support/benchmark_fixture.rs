@@ -44,6 +44,7 @@ pub enum Category {
 }
 
 impl Category {
+    #[allow(dead_code)] // used by the Phase-1 gate report; the semantic harness does not read it
     pub const fn label(self) -> &'static str {
         match self {
             Self::ExactLookup => "exact_lookup",
@@ -70,6 +71,9 @@ pub struct Page {
 pub struct Query {
     pub id: &'static str,
     pub text: &'static str,
+    /// Used by the Phase-1 gate (recall_benchmark.rs) for the worst-by-
+    /// category report; the semantic harness reads neither here nor there.
+    #[allow(dead_code)]
     pub category: Category,
     pub split: Split,
     pub judgments: &'static [Judgment],
@@ -311,4 +315,73 @@ pub const QUERIES: &[Query] = &[
     // relevant page stays out of the top results.
     Query { id: "miss-cjk", text: "什么是卡片盒笔记法", category: Category::Negative, split: Split::Heldout,
         judgments: &[j("sources/luhmann-zettelkasten", 3, Role::Canonical)], expected_conflicts: &[] },
+];
+
+// ─── Phase 2: topic model ────────────────────────────────────────────────────
+//
+// A tiny explicit semantic space for the deterministic store. Each page and
+// each semantically-sensitive query carries a topic set; the harness turns
+// them into L2-normalized multi-hot vectors (mean of one-hot unit vectors).
+// This encodes ASSUMED semantic relations so the benchmark can test our
+// fusion machinery (admission, boosting, tuning response) without a real
+// provider — never the embed quality of a real model. A zero topic set means
+// a zero vector: cosine 0, never a semantic candidate. Negatives and pure-
+// lexical queries deliberately have none.
+
+/// Topic vocabulary; indices double as vector dimensions. Shared fixture
+/// data — each harness crate uses a subset, so dead-code analysis in the
+/// other crate sees these as unused.
+#[allow(dead_code)]
+pub const TOPICS: &[&str] = &[
+    "recall", "storage", "cards", "dedup", "links", "cjk", "capture",
+    "workers", "ranking", "synthesis", "safety", "sources",
+];
+
+#[allow(dead_code)]
+pub const PAGE_TOPICS: &[(&str, &[&str])] = &[
+    ("entities/nomic-embed-text-v1-5", &["recall", "storage"]),
+    ("entities/rust-wiki", &["storage", "safety"]),
+    ("concepts/karpathy-pattern", &["cards", "synthesis"]),
+    ("concepts/okf-v0-2", &["storage", "safety"]),
+    ("concepts/embedding-store", &["storage", "recall"]),
+    ("concepts/semantic-candidate-admission", &["recall", "ranking"]),
+    ("concepts/wikilink-gate", &["links", "safety"]),
+    ("concepts/relevance-claim", &["recall", "ranking"]),
+    ("concepts/trajectory-packet", &["capture", "synthesis"]),
+    ("concepts/env-over-config", &["safety"]),
+    ("concepts/folder-guessing", &["links", "safety"]),
+    ("concepts/content-hash-staleness", &["storage", "recall"]),
+    ("sources/pdf-text-extraction", &["capture", "sources"]),
+    ("sources/luhmann-zettelkasten", &["cards", "sources"]),
+    ("sources/wiki-okf-incompatibility", &["storage", "safety"]),
+    ("retros/git-auto-commit-idle-bug", &["safety", "storage"]),
+    ("retros/personal-layer-ranking-bug", &["recall", "ranking"]),
+    ("retros/retro-window-clamp", &["workers", "dedup"]),
+    ("analyses/embeddings-vs-qmd", &["recall", "cjk", "ranking"]),
+    ("syntheses/worker-duplicate-generation", &["workers", "dedup"]),
+];
+
+/// Queries whose meaning matters beyond their words (paraphrase, contradiction,
+/// vague, CJK). Everything not listed here is a pure-lexical query (empty
+/// semantic vector).
+#[allow(dead_code)]
+pub const QUERY_SEMANTIC_TOPICS: &[(&str, &[&str])] = &[
+    ("pa-1", &["storage", "recall"]),
+    ("pa-2", &["dedup", "workers"]),
+    ("pa-3", &["cards"]),
+    ("pa-4", &["safety"]),
+    ("pa-5", &["storage", "recall"]),
+    ("vr-1", &["safety", "storage"]),
+    ("vr-2", &["dedup", "workers"]),
+    ("vr-3", &["storage", "safety"]),
+    ("vr-4", &["links", "safety"]),
+    ("vr-5", &["recall", "ranking"]),
+    ("co-2", &["recall", "ranking"]),
+    ("ct-1", &["cjk", "recall"]),
+    ("ct-5", &["dedup", "workers"]),
+    ("cn-5", &["recall", "ranking"]),
+    ("ev-5", &["cjk", "recall"]),
+    ("sy-2", &["recall", "ranking"]),
+    ("sy-5", &["dedup", "links", "safety"]),
+    ("miss-cjk", &["cards", "sources"]),
 ];
