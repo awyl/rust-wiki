@@ -32,5 +32,7 @@ Read the LLM Wiki skill first for conventions. The session nudge names the activ
 
 **Rules:**
 - Never modify files in `raw/` — source packets are immutable after capture.
-- Never fabricate information — always cite sources with `[[sources/SRC-...]]`.
+- **Never fabricate.** Only include entities and concepts actually present in the extracted text; nothing invented to look thorough. A faithful 2-3 paragraph summary beats a padded one.
+- Keep entity/concept descriptions to **one line** — depth lives in the concept page, not the registry blurb.
+- Always cite sources with `[[sources/SRC-...]]`.
 - Inside Markdown table cells, never use `[[target|alias]]` pipes (unsupported).
