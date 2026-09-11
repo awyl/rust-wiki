@@ -126,6 +126,38 @@ pub fn apply_gate(body: &str, existing: &Registry, mode: GateMode) -> Result<Str
     Ok(out)
 }
 
+/// Replace fenced blocks and inline code spans with spaces, keeping newlines
+/// and byte offsets, so link scanning sees prose only. Mirrors `apply_gate`:
+/// a wikilink quoted as a sample inside code is documentation, not an edge.
+pub fn mask_code(body: &str) -> String {
+    let mut out = String::with_capacity(body.len());
+    let mut fenced = false;
+    let blank = |s: &str, out: &mut String| {
+        for ch in s.chars() {
+            out.push(if ch == '\n' || ch == '\r' { ch } else { ' ' });
+        }
+    };
+    for line in body.split_inclusive('\n') {
+        let is_fence = line.trim_start().starts_with("```");
+        let in_code = fenced || is_fence;
+        if is_fence {
+            fenced = !fenced;
+        }
+        if in_code {
+            blank(line, &mut out);
+        } else {
+            for (segment, is_code) in code_segments(line) {
+                if is_code {
+                    blank(segment, &mut out);
+                } else {
+                    out.push_str(segment);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Split one line into alternating prose / inline-code segments, keeping the
 /// backticks in the returned slices so the line round-trips unchanged. An
 /// unbalanced trailing backtick leaves the rest of the line as code.
@@ -573,6 +605,17 @@ mod tests {
         let (_t, v) = setup();
         let body = "documents the syntax `[[concepts/never-was]]`\n\n```\n[[concepts/nope]]\n```\n";
         ensure_page(&v, "concept", "Docs", Some(body), GateMode::Validate).unwrap();
+    }
+
+    #[test]
+    fn mask_code_blanks_samples_and_keeps_lines() {
+        let body = "prose [[concepts/rag]]\ninline `[[concepts/x]]` tail\n```\n[[concepts/y]]\n```\nafter [[concepts/z]]\n";
+        let masked = mask_code(body);
+        assert_eq!(masked.lines().count(), body.lines().count());
+        assert!(masked.contains("prose [[concepts/rag]]"));
+        assert!(masked.contains("after [[concepts/z]]"));
+        assert!(!masked.contains("concepts/x"));
+        assert!(!masked.contains("concepts/y"));
     }
 
     #[test]

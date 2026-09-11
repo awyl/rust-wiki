@@ -1,6 +1,6 @@
 # rust-wiki — remote zosmaai-style wiki MCP server (design spec)
 
-**Date:** 2026-09-06 · **Status:** shipped — server v0.9.0 (2026-09-11).
+**Date:** 2026-09-06 · **Status:** shipped — server v0.9.1 (2026-09-11).
 Sections below are dated as each landed; the v1 design text is kept for
 context, superseded where a dated section says otherwise.
 **Replaces:** zosmaai/pi-llm-wiki + its 17 vendored skills (full cutover, no coexistence)
@@ -155,7 +155,9 @@ import/export, trust scoring).
   standard markdown `[label](/folder/page.md)`; validation modes
   off | validate | normalize. A wikilink written inside a code span or a
   fenced block is left verbatim in both modes — a page documenting the
-  syntax must not have its own samples rewritten into live links.
+  syntax must not have its own samples rewritten into live links. The same
+  masking covers link *scanning*: a quoted sample yields no backlink and no
+  missing-page finding.
 - Templates: page templates per type ship in the vault at bootstrap. A
   re-bootstrap of an existing vault tops up templates added since it was
   created (page types ship as new files) and leaves present ones untouched.

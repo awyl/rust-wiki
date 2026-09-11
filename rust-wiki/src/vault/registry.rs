@@ -8,9 +8,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
 use super::layout::VaultPaths;
+use super::pages;
+use serde::{Deserialize, Serialize};
 
 /// One registered page (folder-qualified id -> entry).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -101,8 +101,12 @@ pub fn extract_links(
             }
         }
     }
-    // [[folder/page]] and [[folder/page|label]] (legacy, readable)
-    for caps in wikilink_re().captures_iter(body) {
+    // [[folder/page]] and [[folder/page|label]] (legacy, readable). Scanned on
+    // the code-masked body: a wikilink inside a code span or fence is a quoted
+    // sample, and treating it as an edge produced phantom backlinks and a
+    // `missing_pages` finding for every syntax example in the vault.
+    let prose = pages::mask_code(body);
+    for caps in wikilink_re().captures_iter(&prose) {
         let target = caps[1].split('|').next().unwrap_or(&caps[1]);
         push_id(&mut out, target);
     }
@@ -608,6 +612,22 @@ mod tests {
         assert_eq!(type_for_folder("syntheses"), "synthesis");
         // unknown dirs keep the old naive fallback
         assert_eq!(type_for_folder("customs"), "custom");
+    }
+
+    #[test]
+    fn code_samples_are_not_links() {
+        let (_tmp, v) = setup_vault();
+        write_page(
+            &v,
+            "concepts/syntax",
+            "---\ntitle: Syntax\ntype: concept\n---\n\nReal: [[entities/acme]].\n\nSample `[[concepts/never-was]]`.\n\n```\n[[concepts/fenced-never-was]]\n```\n",
+        );
+        let reg = rebuild_metadata(&v).unwrap();
+        assert_eq!(reg.pages["concepts/syntax"].links, vec!["entities/acme"]);
+        let backlinks: BTreeMap<String, Vec<String>> =
+            serde_json::from_str(&fs::read_to_string(v.backlinks_file()).unwrap()).unwrap();
+        assert!(!backlinks.contains_key("concepts/never-was"));
+        assert!(!backlinks.contains_key("concepts/fenced-never-was"));
     }
 
     #[test]
