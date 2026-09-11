@@ -68,9 +68,16 @@ same rubric there.
      for it. Link each entity to the page it appeared in. Enumerate them; the
      vault is thin on entities because sessions name tools without giving
      them pages.
-   - Updates → `wiki_read_page` then `wiki_write_page` with the full
-     edited document (frontmatter fence preserved — fenceless writes are
-     rejected).
+    - Updates → `wiki_read_page` then `wiki_write_page` with the full
+      edited document (frontmatter fence preserved — fenceless writes are
+      rejected).
+    - **A fence belongs to `wiki_write_page` only.** `wiki_retro` takes a body,
+      not a document — the tool writes the frontmatter (`id`, `title`, `type`,
+      `created`, `relevance`, …), so a body that opens with `---` is wrong.
+      `wiki_ensure_page` takes a body, or a complete fenced document when you
+      scaffolded it from `wiki_template` — if you bring your own fence, declare
+      `relevance:` inside that fence and omit the tool argument, because the two
+      together are rejected.
    - Cross-link generously: `[label](/folder/page.md)` to pages you
      created or that already exist (check with `wiki_search`). Use the exact
       id a tool returned — never invent a folder from the page type (`sources/`

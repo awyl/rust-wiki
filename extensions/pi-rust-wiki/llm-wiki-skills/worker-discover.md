@@ -55,8 +55,12 @@ from your stdout, nothing else.
    - **Concepts:** one `wiki_ensure_page(type="concept", title=...)` per idea
      or pattern, only where the vault does not already cover it.
    - **Scaffold every page from `wiki_template(type)`** and fill it: keep the
-     frontmatter fields and the section headings. Never leave a template stub,
-     and never hand-roll thin frontmatter — `title` + `type` alone is a stub.
+      frontmatter fields and the section headings. Never leave a template stub,
+      and never hand-roll thin frontmatter — `title` + `type` alone is a stub.
+      A template body already carries its fence: pass it as `content` as-is and
+      declare `relevance:` inside that fence — the `relevance` argument and your
+      own fence together are rejected. `wiki_retro` is the opposite: a body, no
+      fence, the tool writes the frontmatter.
    - **One directory per type:** concepts → `concepts/`, entities →
      `entities/`, sources → `sources/`, syntheses → `syntheses/`, analyses →
      `analyses/`. A source page NEVER lives under `concepts/`, and one thing

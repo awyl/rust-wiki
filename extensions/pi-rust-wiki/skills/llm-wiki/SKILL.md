@@ -113,7 +113,7 @@ wiki_search(query="broad topic")
 - `wiki_use_space` — Pin the per-connection space `[remote]`
 - `wiki_capture_source` — Capture URL/file/text into immutable packet + skeleton page (`file_path` resolves server-side only; prefer `text`/`url`). Optional `relevance`: low|medium|high|critical
 - `wiki_ingest` — Get batch of uningested sources with extracted text inline
-- `wiki_ensure_page` — Create entity/concept/synthesis/analysis page from template (no overwrite). Optional `relevance`: low|medium|high|critical
+- `wiki_ensure_page` — Create entity/concept/synthesis/analysis page from template (no overwrite). Optional `relevance`: low|medium|high|critical — pass it with a body, or omit it and declare `relevance:` inside a fenced document you supply yourself (the two together are rejected)
 - `wiki_template` — Authoritative page scaffold per type (`{date}` filled, `{title}` placeholder) `[remote]`
 - `wiki_read_page` — Read a page by id `[remote]`
 - `wiki_write_page` — Guarded update (requires frontmatter fence) `[remote]`
