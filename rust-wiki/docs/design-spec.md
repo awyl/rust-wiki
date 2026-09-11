@@ -1,6 +1,6 @@
 # rust-wiki — remote zosmaai-style wiki MCP server (design spec)
 
-**Date:** 2026-09-06 · **Status:** shipped — server v0.8.0 (2026-09-11).
+**Date:** 2026-09-06 · **Status:** shipped — server v0.8.0 (2026-09-11); v0.9.0 committed, awaiting deploy.
 Sections below are dated as each landed; the v1 design text is kept for
 context, superseded where a dated section says otherwise.
 **Replaces:** zosmaai/pi-llm-wiki + its 17 vendored skills (full cutover, no coexistence)
