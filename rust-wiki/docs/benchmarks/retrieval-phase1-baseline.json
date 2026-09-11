@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "query_count": 60,
+  "all": {
+    "candidate_recall20": 0.8916666666666667,
+    "mrr": 0.6122294372294372,
+    "ndcg5": 0.8922246597850851,
+    "ndcg10": 0.8922246597850851,
+    "canonical_at3": 0.6,
+    "evidence_recall20": 0.3277777777777778,
+    "contradiction_coverage": 0.03333333333333333,
+    "negative_empty_rate": 0.06666666666666667
+  },
+  "train": {
+    "candidate_recall20": 0.8958333333333334,
+    "mrr": 0.6171965187590187,
+    "ndcg5": 0.8947185180985445,
+    "ndcg10": 0.8947185180985445,
+    "canonical_at3": 0.625,
+    "evidence_recall20": 0.3368055555555556,
+    "contradiction_coverage": 0.020833333333333332,
+    "negative_empty_rate": 0.08333333333333333
+  },
+  "heldout": {
+    "candidate_recall20": 0.875,
+    "mrr": 0.5923611111111111,
+    "ndcg5": 0.8822492265312482,
+    "ndcg10": 0.8822492265312482,
+    "canonical_at3": 0.5,
+    "evidence_recall20": 0.2916666666666667,
+    "contradiction_coverage": 0.08333333333333333,
+    "negative_empty_rate": 0.0
+  }
+}

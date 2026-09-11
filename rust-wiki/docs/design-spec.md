@@ -153,6 +153,16 @@ import/export, trust scoring).
   PDF via `pdf-extract` (lines and hyphenation tidied), `%PDF-` magic bytes
   overriding a lying content-type; a PDF without a text layer is refused by
   name (no OCR).
+- Retrieval QA: a graded benchmark (`tests/recall_benchmark.rs`, plan in
+  docs/plans/2026-09-11-retrieval-benchmark.md) runs with `cargo test` and
+  asserts equality against a committed baseline. Phase-1 lexical baseline
+  (60 graded queries, 12 categories, 48 train / 12 held-out): recall@20
+  0.89 / MRR 0.61 / nDCG@5 0.89 / canonical@3 0.60 / evidence recall@20
+  0.33, negatives 100% empty, train ≈ held-out (no overfit). Known Phase-2
+  targets (semantic): canonical@3, evidence recall, and contradiction
+  coverage — the queries behind them are pure paraphrases the lexical layer
+  cannot recover. A `miss-cjk` query is asserted to stay a miss until
+  CJK-aware tokenization lands.
 - Wikilink gate: `[[folder/page]]` legacy readable; canonical links are
   standard markdown `[label](/folder/page.md)`; validation modes
   off | validate | normalize. A wikilink written inside a code span or a
