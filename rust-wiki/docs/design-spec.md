@@ -146,7 +146,9 @@ import/export, trust scoring), embeddings staleness skipping.
 - Wikilink gate: `[[folder/page]]` legacy readable; canonical links are
   standard markdown `[label](/folder/page.md)`; validation modes
   off | validate | normalize.
-- Templates: page templates per type ship in the vault at bootstrap.
+- Templates: page templates per type ship in the vault at bootstrap. A
+  re-bootstrap of an existing vault tops up templates added since it was
+  created (page types ship as new files) and leaves present ones untouched.
 
 ## Skill adaptation (replaces the 17 vendored upstream skills)
 

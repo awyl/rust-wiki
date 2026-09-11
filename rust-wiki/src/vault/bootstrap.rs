@@ -97,6 +97,9 @@ const TEMPLATES: &[(&str, &str)] = &[
 /// Create the vault at `vault` if missing. Existing files are never overwritten.
 pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, BootstrapError> {
     if vault.config_file().exists() {
+        // Templates for page types added after this vault was created are
+        // still missing; top those up without touching what is there.
+        top_up_templates(vault)?;
         return Ok(BootstrapResult {
             created: false,
             space: space_name(vault),
@@ -145,6 +148,21 @@ pub fn bootstrap(vault: &VaultPaths, now_iso: &str) -> Result<BootstrapResult, B
     })
 }
 
+/// Write every template the vault is missing — page types ship as new files,
+/// and a vault bootstrapped before one existed never got it.
+fn top_up_templates(vault: &VaultPaths) -> Result<(), BootstrapError> {
+    fs::create_dir_all(vault.templates()).map_err(|e| {
+        BootstrapError(format!(
+            "create_dir_all {}: {e}",
+            vault.templates().display()
+        ))
+    })?;
+    for (name, body) in TEMPLATES {
+        write_if_absent(&vault.templates().join(format!("{name}.md")), body)?;
+    }
+    Ok(())
+}
+
 fn space_name(vault: &VaultPaths) -> String {
     vault
         .space_root
@@ -184,5 +202,27 @@ mod tests {
         let r2 = bootstrap(&v, "2026-09-07T00:00:00Z").unwrap();
         assert!(!r2.created);
         assert_eq!(std::fs::read_to_string(v.registry_file()).unwrap(), reg);
+    }
+
+    #[test]
+    fn existing_vault_tops_up_templates_added_later() {
+        let tmp = tempfile::tempdir().unwrap();
+        let v = VaultPaths::new(tmp.path(), "proj-y");
+        bootstrap(&v, "2026-09-06T00:00:00Z").unwrap();
+        // a vault created before this template existed
+        let retro = v.templates().join("retro.md");
+        std::fs::remove_file(&retro).unwrap();
+        let edited = v.templates().join("concept.md");
+        std::fs::write(&edited, "custom").unwrap();
+
+        let r = bootstrap(&v, "2026-09-07T00:00:00Z").unwrap();
+
+        assert!(!r.created, "existing vault is not recreated");
+        assert!(retro.exists(), "missing template is restored");
+        assert_eq!(
+            std::fs::read_to_string(&edited).unwrap(),
+            "custom",
+            "present templates are left alone"
+        );
     }
 }

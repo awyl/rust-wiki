@@ -76,11 +76,14 @@ fn boot() -> anyhow::Result<Hub> {
     // layered recall works from the first request.
     let personal =
         rust_wiki::vault::layout::VaultPaths::new(&root, rust_wiki::vault::layout::SPACE_PERSONAL);
-    if !personal.config_file().exists() {
-        rust_wiki::vault::bootstrap::bootstrap(
-            &personal,
-            &chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        )?;
+    let personal_existed = personal.config_file().exists();
+    // Idempotent: creates the space on first boot, tops up page templates
+    // added since on later boots.
+    rust_wiki::vault::bootstrap::bootstrap(
+        &personal,
+        &chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    )?;
+    if !personal_existed {
         eprintln!(
             "bootstrapped personal space at {}",
             personal.space_root.display()
