@@ -1,6 +1,6 @@
 # rust-wiki — remote zosmaai-style wiki MCP server (design spec)
 
-**Date:** 2026-09-06 · **Status:** shipped — server v0.8.0 (2026-09-11); v0.9.0 committed, awaiting deploy.
+**Date:** 2026-09-06 · **Status:** shipped — server v0.9.0 (2026-09-11).
 Sections below are dated as each landed; the v1 design text is kept for
 context, superseded where a dated section says otherwise.
 **Replaces:** zosmaai/pi-llm-wiki + its 17 vendored skills (full cutover, no coexistence)
@@ -437,6 +437,47 @@ re-throw from the catch handler takes pi down).
 Worker logs are **appended** to `/tmp/llm-wiki-<kind>-<space>.log` with a
 `=== run <timestamp> ===` header — truncating raced when two runs shared a
 path and overwrote each other's report.
+
+## Relevance as a claim, not a label (2026-09-11)
+
+Every page could already say how much it mattered, and almost none did: the
+`observation` type carried a required `relevance` while the 30-odd retros
+carried none, and the recall multiplier that reads the field was scoring a
+single page. Two changes made the claim real.
+
+- **`observation` is gone as a type.** `wiki_observe` always wrote
+  `type: retro`; the extra type only existed in the tool schema, which meant
+  first-class on read and rejected on write. One artifact, two cadences:
+  `wiki_retro` at task end, `wiki_observe` mid-session with an `obs-` prefix.
+- **One claim, four doors.** `relevance` (low|medium|high|critical) is
+  accepted by `wiki_retro`, `wiki_observe` (required), `wiki_capture_source`,
+  and `wiki_ensure_page`; `wiki_write_page` inherits it from whatever the
+  author puts in the fence. Validated on write by `pages::is_relevance` and
+  filtered on read by the registry, so an unrecognised label scores 1.0
+  instead of posing as authoritative.
+- **Bounded effect.** The multiplier (0.9/1.0/1.1/1.2) settles comparable
+  matches and cannot overturn a stronger one: 1.2 × 1.0 < 0.9 × 3.0.
+- **Calibration in the prompts.** Medium is the default and most insights are
+  medium; `high` is for a constraint that bites again, `critical` for a fact
+  that changes how future work must be done — with an explicit note that
+  omitting the field scores exactly like medium, so declaring it is only worth
+doing when the claim is real.
+
+`relevance` does not replace `confidence` (how sure the page is) or the
+contradiction marker (where a page disagrees with another); it only answers
+how much this is worth reading.
+
+## Wikilink gate vs. the pages that document it (fixed 2026-09-11)
+
+The normalize/validate gate rewrote every `[[...]]` in a body on write —
+inside code spans too. A page whose subject *is* link syntax had its samples
+turned into live links, so `concepts/wikilinks` defined the bare wikilink form
+as a markdown link, and a captured guide's settings line became a link to a
+page that never existed (the one entry in `missing_pages`). Fenced blocks and
+inline code spans now pass through verbatim in both modes; prose beside them
+still normalizes. Two tests hold the line: a code-sample wikilink survives
+untouched, and a dangling wikilink inside code no longer fails a
+validate-mode write.
 
 ## Non-goals
 
