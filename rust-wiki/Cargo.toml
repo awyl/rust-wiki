@@ -1,6 +1,6 @@
 [package]
 name = "rust-wiki"
-version = "0.9.1"
+version = "0.9.2"
 edition = "2021"
 description = "Remote zosmaai-style wiki MCP server: multi-space vaults, mechanical engine, no LLM"
 license = "MIT"

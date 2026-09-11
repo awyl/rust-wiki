@@ -14,6 +14,8 @@ const CHUNK: usize = 600;
 pub fn links_first_threshold() -> u64 {
     crate::config::get().recall_links_first_threshold
 }
+/// Links-first stub length for prose pages (working-memory pages are exempt).
+const LINKS_FIRST_PREVIEW: usize = 80;
 /// Field weights (KISS: title/id dominate, type assists).
 const W_TITLE: f64 = 3.0;
 const W_ID: f64 = 2.0;
@@ -320,11 +322,18 @@ pub fn recall_layered_semantic(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
     }
-    // links-first: previews trimmed when vault is big
+    // links-first: previews trimmed when vault is big. Working-memory pages
+    // (skill/case) are meant to be applied immediately, so they keep their
+    // query-relevant chunk preview; only prose pages get the 80-char stub.
+    // (Upstream inlines up to 1600 chars of body; our preview is the best
+    // matching chunk, which is shorter but on-query — close enough, far cheaper.)
     let links_first = registry.pages.len() as u64 > links_first_threshold();
     if links_first {
         for h in &mut hits {
-            h.preview = h.preview.chars().take(80).collect();
+            if matches!(h.page_type.as_str(), "skill" | "case") {
+                continue;
+            }
+            h.preview = h.preview.chars().take(LINKS_FIRST_PREVIEW).collect();
         }
     }
     hits.truncate(max_results as usize);
@@ -586,6 +595,31 @@ mod tests {
         let (hits, links_first) = recall_layered(&v, None, &reg, "rag", 5);
         assert!(links_first);
         assert!(hits.iter().all(|h| h.preview.chars().count() <= 80));
+    }
+
+    #[test]
+    fn links_first_spares_working_memory_previews() {
+        let (_t, v) = setup();
+        for i in 0..60 {
+            page(
+                &v,
+                &format!("concepts/page-{i}"),
+                &format!("# P{i}\n\ncommon rag token {i}\n"),
+            );
+        }
+        // A skill page whose best chunk clearly exceeds the 80-char stub.
+        page(
+            &v,
+            "skills/rag-pipeline",
+            &format!("# RAG pipeline\n\n{}", "rag ".repeat(100)),
+        );
+        let reg = rebuild_metadata(&v).unwrap();
+        let (hits, links_first) = recall_layered(&v, None, &reg, "rag", 5);
+        assert!(links_first);
+        let skill = hits.iter().find(|h| h.id == "skills/rag-pipeline").unwrap();
+        assert!(skill.preview.chars().count() > 80, "skill preview trimmed");
+        let concept = hits.iter().find(|h| h.id == "concepts/page-0").unwrap();
+        assert!(concept.preview.chars().count() <= 80);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # rust-wiki — remote zosmaai-style wiki MCP server (design spec)
 
-**Date:** 2026-09-06 · **Status:** shipped — server v0.9.1 (2026-09-11).
+**Date:** 2026-09-06 · **Status:** shipped — server v0.9.2 (2026-09-11).
 Sections below are dated as each landed; the v1 design text is kept for
 context, superseded where a dated section says otherwise.
 **Replaces:** zosmaai/pi-llm-wiki + its 17 vendored skills (full cutover, no coexistence)
@@ -133,7 +133,9 @@ import/export, trust scoring).
 ## Engine behaviors to port
 
 - Recall: chunk-level scoring, weighted field matching, pseudo-relevance
-  feedback, links-first gate above page-count threshold (default 50),
+  feedback, links-first gate above page-count threshold (default 50) — which
+  spares `skill`/`case` previews, since working-memory pages are meant to be
+  applied immediately rather than opened,
   relevance-claim multiplier (a declared `relevance:` settles comparable
   matches; undeclared = 1.0, so plain lexical order is untouched). The claim is
   validated at every creation door (`wiki_retro`, `wiki_observe`,
