@@ -2,6 +2,7 @@
 
 pub mod bootstrap;
 pub mod capture;
+pub mod convert;
 pub mod ingest;
 pub mod layout;
 pub mod lint;

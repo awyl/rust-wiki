@@ -98,6 +98,7 @@ mod tests {
                     title: Some(format!("Source {i}")),
                     text: format!("body {i}"),
                 },
+                &crate::vault::convert::DefaultConverter,
             )
             .unwrap();
         }

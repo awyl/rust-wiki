@@ -7,6 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::convert::{self, Converter};
 use super::layout::VaultPaths;
 use super::pages;
 use super::registry::rebuild_metadata;
@@ -64,13 +65,15 @@ fn title_of(text: &str, fallback: &str) -> String {
 }
 
 /// Capture text/url/file into a packet + skeleton source page.
-/// `url_body` is pre-fetched markdown (the Hub does the HTTP), so this
-/// stays pure fs — easy to test, no network in the engine.
+/// `url_body` is pre-fetched markdown (the Hub does the HTTP), and
+/// `converter` turns local file bytes into markdown, so this stays pure fs —
+/// easy to test, no network in the engine.
 pub fn capture(
     vault: &VaultPaths,
     date: &str,
     now_iso: &str,
     input: CaptureInput,
+    converter: &dyn Converter,
 ) -> Result<Captured, String> {
     let seq = next_seq(vault, date)?;
     let source_id = format!("SRC-{date}-{seq:03}");
@@ -115,19 +118,19 @@ pub fn capture(
             if !p.is_file() {
                 return Err(format!("server-local file not found: {fp}"));
             }
-            let bytes = fs::read(p).map_err(|e| e.to_string())?;
-            let ext = p
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            extracted = if matches!(ext.as_str(), "md" | "txt" | "json" | "xml" | "html") {
-                String::from_utf8_lossy(&bytes).into_owned()
-            } else {
+            let len = fs::metadata(p).map_err(|e| e.to_string())?.len();
+            if len > convert::MAX_BYTES {
                 return Err(format!(
-                    "unsupported file type '.{ext}' — pass text or url instead"
+                    "file is {len} bytes — over the {} byte capture limit",
+                    convert::MAX_BYTES
                 ));
-            };
+            }
+            let bytes = fs::read(p).map_err(|e| e.to_string())?;
+            // Extension first, magic bytes second — a mislabelled .txt that is
+            // really a PDF must not be stored as mojibake.
+            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let kind = convert::sniff(&bytes).unwrap_or_else(|| convert::from_extension(ext));
+            extracted = converter.convert(&bytes, &kind)?;
             title = title_opt.unwrap_or_else(|| {
                 p.file_stem()
                     .and_then(|s| s.to_str())
@@ -272,7 +275,22 @@ pub fn mark_ingested(vault: &VaultPaths, ids: &[String], now_iso: &str) -> Resul
 
 #[cfg(test)]
 mod tests {
+    use super::super::convert::{self, ContentKind, Converter, DefaultConverter};
     use super::*;
+
+    /// Records what the capture path decided each file was, so the wiring
+    /// (extension, then magic bytes) is asserted without real documents.
+    #[derive(Default)]
+    struct RecordingConverter {
+        kinds: std::sync::Mutex<Vec<ContentKind>>,
+    }
+
+    impl Converter for RecordingConverter {
+        fn convert(&self, _bytes: &[u8], kind: &ContentKind) -> Result<String, String> {
+            self.kinds.lock().unwrap().push(kind.clone());
+            Ok(format!("converted {}", kind.name()))
+        }
+    }
 
     fn setup() -> (tempfile::TempDir, VaultPaths) {
         let tmp = tempfile::tempdir().unwrap();
@@ -292,6 +310,7 @@ mod tests {
                 title: None,
                 text: "# Spec Notes\n\ncontent here\n".into(),
             },
+            &DefaultConverter,
         )
         .unwrap();
         assert_eq!(c1.source_id, "SRC-2026-09-07-001");
@@ -304,6 +323,7 @@ mod tests {
                 title: Some("Second".into()),
                 text: "body".into(),
             },
+            &DefaultConverter,
         )
         .unwrap();
         assert_eq!(c2.source_id, "SRC-2026-09-07-002");
@@ -327,32 +347,82 @@ mod tests {
     }
 
     #[test]
-    fn capture_file_validates_extension() {
+    fn file_capture_classifies_then_converts() {
         let (_t, v) = setup();
-        let tmp2 = tempfile::tempdir().unwrap();
-        let f = tmp2.path().join("notes.md");
-        fs::write(&f, "# Notes\n\nfrom a file\n").unwrap();
-        let c = capture(
+        let files = tempfile::tempdir().unwrap();
+        let rec = RecordingConverter::default();
+        let cases: [(&str, &[u8], ContentKind); 3] = [
+            ("notes.md", b"# Notes\n\nfrom a file\n", ContentKind::Text),
+            ("page.html", b"<p>hi</p>", ContentKind::Html),
+            // Wrong extension, right magic bytes: a mislabelled PDF is still a
+            // PDF, and must not land in the vault as mojibake.
+            ("fake.txt", b"%PDF-1.4\n...", ContentKind::Pdf),
+        ];
+        for (name, bytes, want) in cases {
+            let f = files.path().join(name);
+            fs::write(&f, bytes).unwrap();
+            let c = capture(
+                &v,
+                "2026-09-07",
+                "t",
+                CaptureInput::File {
+                    title: None,
+                    path: f.to_string_lossy().into(),
+                },
+                &rec,
+            )
+            .unwrap();
+            assert!(c.extracted_preview.contains("converted"), "{name}");
+            assert_eq!(rec.kinds.lock().unwrap().pop().unwrap(), want, "{name}");
+        }
+
+        // A binary type is refused by name instead of decoded as text.
+        let png = files.path().join("shot.png");
+        fs::write(&png, b"\x89PNG\r\n\x1a\n").unwrap();
+        let err = capture(
             &v,
             "2026-09-07",
             "t",
             CaptureInput::File {
                 title: None,
-                path: f.to_string_lossy().into(),
+                path: png.to_string_lossy().into(),
             },
-        )
-        .unwrap();
-        assert!(c.extracted_preview.contains("from a file"));
-        let bad = capture(
-            &v,
-            "2026-09-07",
-            "t",
-            CaptureInput::File {
-                title: None,
-                path: "/etc/hostname".into(),
-            },
+            &DefaultConverter,
         )
         .unwrap_err();
-        assert!(bad.contains("unsupported"));
+        assert!(err.contains("png"), "{err}");
+
+        // Size is refused before the file is read (the file is sparse, so this
+        // costs no disk).
+        let big = files.path().join("big.md");
+        fs::File::create(&big)
+            .unwrap()
+            .set_len(convert::MAX_BYTES + 1)
+            .unwrap();
+        let err = capture(
+            &v,
+            "2026-09-07",
+            "t",
+            CaptureInput::File {
+                title: None,
+                path: big.to_string_lossy().into(),
+            },
+            &DefaultConverter,
+        )
+        .unwrap_err();
+        assert!(err.contains("capture limit"), "{err}");
+
+        let missing = capture(
+            &v,
+            "2026-09-07",
+            "t",
+            CaptureInput::File {
+                title: None,
+                path: "/nope/missing.md".into(),
+            },
+            &DefaultConverter,
+        )
+        .unwrap_err();
+        assert!(missing.contains("not found"), "{missing}");
     }
 }

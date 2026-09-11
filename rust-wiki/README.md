@@ -121,6 +121,22 @@ call; the client timeout is 180s, then warm calls are milliseconds.
 and the server logs `rust-wiki v<version>` at boot — either one tells you
 whether a deploy is actually live.
 
+### Capturing a source
+
+`wiki_capture_source` takes exactly one of `text`, `url`, or `file_path`
+(server-local). Bytes are converted to Markdown by one shared converter, so the
+same document behaves the same whichever door it came through:
+
+| Input | Handling |
+|---|---|
+| HTML | converted to Markdown (`html2md`) |
+| text, markdown, json, xml, yaml | stored as-is |
+| PDF (URL or file) | text extracted with pure-Rust `pdf-extract`, no external binary; a scan without a text layer is refused, not stored empty |
+| anything else (images, archives) | refused **by name** |
+
+Magic bytes win over the declared type, so a PDF served as `text/plain` is not
+stored as mojibake. Captures are capped at 10 MB and fetches time out after 30 s.
+
 ## Frontmatter and links
 
 Pages are plain Markdown. Frontmatter is optional full YAML (nested maps,

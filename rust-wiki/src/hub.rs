@@ -2,27 +2,73 @@
 //! owns per-connection space pins + injected clock/url-fetcher (test seams).
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::api::*;
 use crate::vault::{
-    bootstrap as vb, capture as vc, ingest as vi,
+    bootstrap as vb, capture as vc,
+    convert::{self, Converter, DefaultConverter},
+    ingest as vi,
     layout::{VaultPaths, SPACE_PERSONAL},
     lint as vl, pages as vp, recall as vr, registry, status as vs, trajectory as vt,
 };
 
+/// A fetch that has not answered in this long is not going to.
+pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Seam: fetch a URL and convert to markdown. Production impl uses
-/// reqwest+html2md; tests stub it.
+/// reqwest + the shared `Converter`; tests stub it.
 pub trait UrlFetcher: Send + Sync {
     fn fetch_markdown(&self, url: &str) -> Result<String, String>;
 }
 
-pub struct HttpFetcher;
+pub struct HttpFetcher {
+    client: reqwest::blocking::Client,
+    convert: Arc<dyn Converter>,
+}
+
+/// Full cause chain. reqwest's `Display` keeps only the top level, and
+/// "error sending request" alone does not say whether it was DNS, TLS, or a
+/// refusal — which is the whole point of reporting a failed fetch.
+fn why(e: &reqwest::Error) -> String {
+    let mut out = e.to_string();
+    let mut src = std::error::Error::source(e);
+    while let Some(s) = src {
+        out.push_str(&format!(": {s}"));
+        src = s.source();
+    }
+    out
+}
+
+impl HttpFetcher {
+    pub fn new(convert: Arc<dyn Converter>) -> Self {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(HTTP_TIMEOUT)
+            .build()
+            // Only fails on a broken TLS backend; serving without a timeout
+            // beats refusing to serve.
+            .unwrap_or_else(|_| reqwest::blocking::Client::new());
+        Self { client, convert }
+    }
+
+    /// Test seam: take the client, so a test can bypass the ambient proxy
+    /// configuration that would otherwise route 127.0.0.1 through a proxy.
+    #[cfg(test)]
+    fn with_client(convert: Arc<dyn Converter>, client: reqwest::blocking::Client) -> Self {
+        Self { client, convert }
+    }
+}
 
 impl UrlFetcher for HttpFetcher {
     fn fetch_markdown(&self, url: &str) -> Result<String, String> {
-        let resp = reqwest::blocking::get(url).map_err(|e| format!("fetch {url}: {e}"))?;
+        let resp = self
+            .client
+            .get(url)
+            .send()
+            .map_err(|e| format!("fetch {url}: {}", why(&e)))?;
         if !resp.status().is_success() {
             return Err(format!("fetch {url}: HTTP {}", resp.status()));
         }
@@ -32,12 +78,32 @@ impl UrlFetcher for HttpFetcher {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_string();
-        let body = resp.text().map_err(|e| e.to_string())?;
-        if ct.contains("text/html") {
-            Ok(html2md::parse_html(&body))
-        } else {
-            Ok(body)
+        // Refuse an oversize body before reading it into memory.
+        if let Some(len) = resp.content_length() {
+            if len > convert::MAX_BYTES {
+                return Err(format!(
+                    "fetch {url}: {len} bytes exceeds the {} byte capture limit",
+                    convert::MAX_BYTES
+                ));
+            }
         }
+        let mut bytes = Vec::new();
+        let mut limited = resp.take(convert::MAX_BYTES + 1);
+        limited
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("fetch {url}: {e}"))?;
+        if bytes.len() as u64 > convert::MAX_BYTES {
+            return Err(format!(
+                "fetch {url}: body exceeds the {} byte capture limit",
+                convert::MAX_BYTES
+            ));
+        }
+        // Content-type first, magic bytes second: a PDF served as text/plain
+        // would otherwise be stored as mojibake.
+        let kind = convert::sniff(&bytes).unwrap_or_else(|| convert::from_content_type(&ct));
+        self.convert
+            .convert(&bytes, &kind)
+            .map_err(|e| format!("fetch {url}: {e}"))
     }
 }
 
@@ -45,16 +111,19 @@ pub struct Hub {
     root: PathBuf,
     conns: Mutex<HashMap<String, String>>,
     fetch: Box<dyn UrlFetcher>,
+    convert: Arc<dyn Converter>,
     embedder: Option<Box<dyn crate::vault::embeddings::Embedder>>,
     now: Box<dyn Fn() -> String + Send + Sync>,
 }
 
 impl Hub {
     pub fn new(root: PathBuf) -> Self {
+        let convert: Arc<dyn Converter> = Arc::new(DefaultConverter);
         Self {
             root,
             conns: Mutex::new(HashMap::new()),
-            fetch: Box::new(HttpFetcher),
+            fetch: Box::new(HttpFetcher::new(convert.clone())),
+            convert,
             embedder: crate::vault::embeddings::from_env(),
             now: Box::new(|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
         }
@@ -70,12 +139,14 @@ impl Hub {
     pub fn with_injections(
         root: PathBuf,
         fetch: Box<dyn UrlFetcher>,
+        convert: Arc<dyn Converter>,
         now: Box<dyn Fn() -> String + Send + Sync>,
     ) -> Self {
         Self {
             root,
             conns: Mutex::new(HashMap::new()),
             fetch,
+            convert,
             embedder: None,
             now,
         }
@@ -213,8 +284,14 @@ impl WikiApi for Hub {
                 ))
             }
         };
-        let c = vc::capture(&v, &self.today(), &self.now_iso(), input)
-            .map_err(|e| ApiError::new("io", e))?;
+        let c = vc::capture(
+            &v,
+            &self.today(),
+            &self.now_iso(),
+            input,
+            self.convert.as_ref(),
+        )
+        .map_err(|e| ApiError::new("io", e))?;
         let source_page_id = format!("sources/{}", c.source_id.to_lowercase());
         Ok(CaptureOut {
             source_id: c.source_id,
@@ -591,6 +668,7 @@ mod tests {
         Hub::with_injections(
             tmp.path().to_path_buf(),
             Box::new(StaticFetcher),
+            Arc::new(DefaultConverter),
             Box::new(|| "2026-09-07T12:00:00Z".into()),
         )
     }
@@ -602,12 +680,124 @@ mod tests {
         }
     }
 
+    /// Converter that reports what the fetch path decided the response was.
+    #[derive(Default)]
+    struct KindRecorder {
+        seen: std::sync::Mutex<Vec<crate::vault::convert::ContentKind>>,
+    }
+
+    impl Converter for KindRecorder {
+        fn convert(
+            &self,
+            _b: &[u8],
+            kind: &crate::vault::convert::ContentKind,
+        ) -> Result<String, String> {
+            self.seen.lock().unwrap().push(kind.clone());
+            Ok(format!("converted {}", kind.name()))
+        }
+    }
+
+    /// One-shot HTTP server: answers the first request with `headers` + `body`.
+    /// A local listener keeps these tests off the network. A `Content-Length`
+    /// in `headers` is honoured (the oversize case declares a big one and
+    /// sends almost nothing); otherwise the real body length is sent, because
+    /// hyper rejects an EOF-delimited response as incomplete.
+    fn serve_once(headers: &'static str, body: Vec<u8>) -> String {
+        use std::io::Write as _;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut sock, _)) = listener.accept() {
+                let mut buf = [0u8; 2048];
+                let _ = sock.read(&mut buf); // drain the request
+                let len = if headers.to_ascii_lowercase().contains("content-length") {
+                    String::new()
+                } else {
+                    format!("Content-Length: {}\r\n", body.len())
+                };
+                let head =
+                    format!("HTTP/1.1 200 OK\r\n{headers}\r\n{len}Connection: close\r\n\r\n");
+                let _ = sock.write_all(head.as_bytes());
+                let _ = sock.write_all(&body);
+            }
+        });
+        format!("http://{addr}/page")
+    }
+
+    /// A fetcher whose client ignores http_proxy: the local one-shot server
+    /// above must not be routed through it.
+    fn local_fetcher(convert: Arc<dyn Converter>) -> HttpFetcher {
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .timeout(HTTP_TIMEOUT)
+            .build()
+            .unwrap();
+        HttpFetcher::with_client(convert, client)
+    }
+
+    #[test]
+    fn fetch_dispatches_on_content_type() {
+        let rec = std::sync::Arc::new(KindRecorder::default());
+        let f = local_fetcher(rec.clone());
+        let md = f
+            .fetch_markdown(&serve_once(
+                "Content-Type: text/html; charset=utf-8",
+                b"<h1>Hi</h1>".to_vec(),
+            ))
+            .unwrap();
+        assert!(md.starts_with("converted html"), "{md}");
+        assert_eq!(
+            rec.seen.lock().unwrap().pop().unwrap(),
+            crate::vault::convert::ContentKind::Html
+        );
+
+        // A PDF announced as text/plain is still converted as a PDF — the
+        // case that used to store binary as mojibake.
+        let rec = std::sync::Arc::new(KindRecorder::default());
+        let f = local_fetcher(rec.clone());
+        let md = f
+            .fetch_markdown(&serve_once(
+                "Content-Type: text/plain",
+                b"%PDF-1.4\n...".to_vec(),
+            ))
+            .unwrap();
+        assert!(md.starts_with("converted pdf"), "{md}");
+        assert_eq!(
+            rec.seen.lock().unwrap().pop().unwrap(),
+            crate::vault::convert::ContentKind::Pdf
+        );
+
+        // A binary type is refused instead of decoded as text.
+        let f = local_fetcher(std::sync::Arc::new(DefaultConverter));
+        let err = f
+            .fetch_markdown(&serve_once(
+                "Content-Type: image/png",
+                b"\x89PNG\r\n".to_vec(),
+            ))
+            .unwrap_err();
+        assert!(err.contains("image/png"), "{err}");
+    }
+
+    #[test]
+    fn fetch_refuses_a_body_over_the_capture_limit() {
+        let f = local_fetcher(std::sync::Arc::new(DefaultConverter));
+        let declared = convert::MAX_BYTES + 1;
+        let headers: &'static str = Box::leak(
+            format!("Content-Type: text/plain\r\nContent-Length: {declared}").into_boxed_str(),
+        );
+        let err = f
+            .fetch_markdown(&serve_once(headers, b"tiny".to_vec()))
+            .unwrap_err();
+        assert!(err.contains("capture limit"), "{err}");
+    }
+
     #[test]
     fn status_carries_git_state_after_tick() {
         let tmp = tempfile::tempdir().unwrap();
         let h = Hub::with_injections(
             tmp.path().to_path_buf(),
             Box::new(StaticFetcher),
+            Arc::new(DefaultConverter),
             Box::new(|| "2026-09-07T12:00:00Z".into()),
         );
         let api: &dyn WikiApi = &h;
@@ -786,6 +976,7 @@ mod tests {
         let plain = Hub::with_injections(
             h.root.clone(),
             Box::new(StaticFetcher),
+            Arc::new(DefaultConverter),
             Box::new(|| "2026-09-07T12:00:00Z".into()),
         );
         let base = plain.recall("proj", "cache", None).unwrap();

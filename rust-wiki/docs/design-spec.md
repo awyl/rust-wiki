@@ -106,7 +106,7 @@ The original v1 surface (15) adapted from zosmaai's 14; semantics preserved:
 |---|---|
 | `wiki_use_space` | **new** — pin per-connection space; returns space summary |
 | `wiki_bootstrap` | + required `space` arg; creates the vault dir |
-| `wiki_capture_source` | url/text as-is; `file_path` resolves server-side only (agents pass `text` or `url`) |
+| `wiki_capture_source` | url/text/file: bytes → markdown via one `Converter` (html/text/pdf), 10 MB cap, 30 s fetch timeout, magic bytes override a lying content-type. `file_path` resolves server-side only |
 | `wiki_ingest` | cooperative batch: returns uningested packets, agent synthesizes (default batch 3, max 5) |
 | `wiki_ensure_page` | unchanged (create-no-overwrite, template fallback) |
 | `wiki_read_page` | **new** — read a `wiki/**` page by ID (remote replaces local file reads) |
@@ -214,6 +214,28 @@ a commit ever happened.
   a timestamp — `bookkeeping_churn_alone_never_commits` pins that.
 - If a vault already has `meta/git.json` tracked, `git rm --cached
   meta/git.json` once; the ignore line alone will not untrack it.
+
+### Source capture: one converter for every door (2026-09-11)
+
+Bytes become markdown in exactly one place (`vault::convert`), reached by both
+capture paths — URL fetches and server-local files — through the `Converter`
+trait. What a document *is* comes from the HTTP `content-type` or the file
+extension, and magic bytes (`%PDF-`) override both, because a PDF served as
+`text/plain` used to be stored as lossy-UTF-8 mojibake with no error at all.
+
+| Limit | Value | Why |
+|---|---|---|
+| Capture size | 10 MB | a declared `content-length` is rejected before the body is read; the read itself is capped too |
+| Fetch timeout | 30 s | `reqwest::blocking::get` had none, so a hung host hung the capture |
+| Supported | html, text/markdown, json, xml, yaml, pdf | anything else is refused **by name** |
+| Not supported | OCR | a scanned PDF has no text layer; the error says so instead of writing an empty page |
+
+PDF text uses pure-Rust `pdf-extract` (no external binary to deploy) and is
+tidied: wrapped lines joined, end-of-line hyphenation undone, blank-line runs
+collapsed. `sources/` is shared by `source`, `retro` and `observation` pages, so
+`PAGE_TYPES` names all three and the published tool schema is generated from it
+— a folder must never be inferred from a page type (see
+`resolve_guessed_folders`).
 
 ## Testing
 
