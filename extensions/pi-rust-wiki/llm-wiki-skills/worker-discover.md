@@ -40,7 +40,9 @@ from your stdout, nothing else.
    - skip anything already captured — `wiki_recall` the title/domain first
      (semantic, so it catches a differently-titled page on the same topic);
    - skip ads, listicles, and duplicates; prefer in-depth sources;
-   - `wiki_capture_source(url=...)` to store the immutable packet.
+   - `wiki_capture_source(url=...)` to store the immutable packet — pass
+     `relevance="high"` only when the source is load-bearing for the topic;
+     leave it off for the rest (most captures claim nothing).
 6. Synthesize what you captured. This is the point of the run — a captured
    packet nobody extracted from is wasted:
    - **Source page:** a short summary and the key claims, citing the URL.
@@ -65,8 +67,8 @@ from your stdout, nothing else.
     - **Never invent a folder.** Take the path from the id the tool returned
       (`wiki_ensure_page`/`wiki_capture_source` print it) or from `wiki_search`
       for a page that already exists. Guessing a folder from a page type is the
-      main source of dangling links: `sources/` holds source pages *and*
-      retro/observation pages, so `/retros/...` does not exist.
+      main source of dangling links: `sources/` holds source pages *and* retros
+      (mid-session notes are retros too), so `/retros/...` does not exist.
    - Every new page links to at least one existing page, and entities link to
      the concept/source pages that introduced them.
 7. Quality gate: `wiki_lint` with `auto_fix: true`; fix what it reports.

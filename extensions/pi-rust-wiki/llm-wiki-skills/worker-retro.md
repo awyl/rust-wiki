@@ -16,6 +16,19 @@ reads, answered questions, no-op runs) record **nothing** — writing zero pages
 is a correct outcome. One atomic insight per `wiki_retro` call; separate
 distinct findings into multiple calls.
 
+Declare `relevance` (`low|medium|high|critical`) on each insight. It is not
+decoration: recall scales the page's score by it (0.9 / 1.0 / 1.1 / 1.2), which
+settles documents of comparable match strength.
+
+Calibrate, don't decorate: **medium is the default and most insights are
+medium**. Reserve `high` for a constraint or bug that will bite again, and
+`critical` for a fact that changes how future work must be done. If most of
+this run's insights came out `high`, you inflated — demote until the top slice
+is small. `low` is a minor gotcha worth keeping but not trusting. Omitting the
+field scores exactly like medium, so declare it only when the claim is real.
+Mid-session notes (`wiki_observe`) carry it as a required argument — apply the
+same rubric there.
+
 ## Procedure
 
 1. Pin + verify: call `wiki_bootstrap` with the space from the launch
@@ -60,8 +73,9 @@ distinct findings into multiple calls.
      rejected).
    - Cross-link generously: `[label](/folder/page.md)` to pages you
      created or that already exist (check with `wiki_search`). Use the exact
-     id a tool returned — never invent a folder from the page type (`sources/`
-     holds retros and observations too, so `/retros/...` does not exist).
+      id a tool returned — never invent a folder from the page type (`sources/`
+      holds sources and retros; a mid-session note is a retro too, so
+      `/retros/...` does not exist).
 5. Quality gate: call `wiki_lint` with `auto_fix: true`. Fix what it
    reports (orphans get links, missing pages get stubs + content).
 6. Verify: `wiki_status` — health must not be "empty".

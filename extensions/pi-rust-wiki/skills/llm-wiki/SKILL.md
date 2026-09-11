@@ -91,8 +91,12 @@ After completing any meaningful task, call `wiki_retro`:
 
 **Do not wait for the user to ask.** One atomic insight per call. Search first with `wiki_recall`: if a page already states the insight, `wiki_write_page` that page instead of adding a near-duplicate under a new slug.
 
+Declare `relevance` (`low|medium|high|critical`) when the insight genuinely is one of those. Recall scales a page's score by it (0.9 / 1.0 / 1.1 / 1.2), so documents of comparable match strength settle in favour of the page that claims importance — and an undeclared page keeps its exact score. Omit it for unremarkable insights; never inflate it.
+
+Record something noticed *mid*-task with `wiki_observe`. It writes a `retro` page under `sources/obs-<date>-<slug>` carrying `relevance` plus optional `tags` / `source_context`.
+
 ```
-wiki_retro(slug="kebab-case-slug", title="Brief descriptive title", body="Insight in your own words with [links](/folder/page.md)")
+wiki_retro(slug="kebab-case-slug", title="Brief descriptive title", body="Insight in your own words with [links](/folder/page.md)", relevance="high")
 ```
 
 ### Deeper Searches
@@ -107,9 +111,9 @@ wiki_search(query="broad topic")
 
 - `wiki_bootstrap` — Initialize a new vault (`space`)
 - `wiki_use_space` — Pin the per-connection space `[remote]`
-- `wiki_capture_source` — Capture URL/file/text into immutable packet + skeleton page (`file_path` resolves server-side only; prefer `text`/`url`)
+- `wiki_capture_source` — Capture URL/file/text into immutable packet + skeleton page (`file_path` resolves server-side only; prefer `text`/`url`). Optional `relevance`: low|medium|high|critical
 - `wiki_ingest` — Get batch of uningested sources with extracted text inline
-- `wiki_ensure_page` — Create entity/concept/synthesis/analysis page from template (no overwrite)
+- `wiki_ensure_page` — Create entity/concept/synthesis/analysis page from template (no overwrite). Optional `relevance`: low|medium|high|critical
 - `wiki_template` — Authoritative page scaffold per type (`{date}` filled, `{title}` placeholder) `[remote]`
 - `wiki_read_page` — Read a page by id `[remote]`
 - `wiki_write_page` — Guarded update (requires frontmatter fence) `[remote]`
@@ -118,8 +122,8 @@ wiki_search(query="broad topic")
 - `wiki_recall` — Layered relevance search (space + personal)
 - `wiki_capture_trajectory` / `wiki_distill_skills` / `wiki_recall_skill` — Working-memory trio (packets, distillation, skill recall)
 - `wiki_search` — Registry keyword search (space only)
-- `wiki_retro` — Save an atomic insight
-- `wiki_observe` — Timestamped mid-session observation `[remote]`
+- `wiki_retro` — Save an atomic insight (optional `relevance`: low|medium|high|critical)
+- `wiki_observe` — Timestamped mid-session note, stored as a `retro` page in `sources/` `[remote]`
 - `wiki_lint` — Health check (orphans, missing, contradictions, gaps; `auto_fix`)
 - `wiki_status` — Instant stats
 - `wiki_rebuild_meta` — Force metadata rebuild (per-space)
@@ -133,11 +137,11 @@ wiki_search(query="broad topic")
 
 Before capturing: `wiki_recall` the topic or URL. An existing page covering it gets a `wiki_write_page` update, not a second capture.
 
-1. **Capture**: `wiki_capture_source(url="...")` → packet + skeleton
+1. **Capture**: `wiki_capture_source(url="...")` → packet + skeleton. Pass `relevance="high"|"critical"` only when the source genuinely outranks its peers for future recall; most captures claim nothing
 2. **Ingest**: `wiki_ingest()` → batch with extracted text inline `[remote: no local extracted.md]`
 3. **Write**: Update skeleton source page with summary, entities, concepts
 4. **Scaffold**: `wiki_template(type="concept")` for the exact current scaffold `[remote]`
-5. **Ensure**: `wiki_ensure_page(type="entity", title="...")` per entity; `type="concept"` per concept
+5. **Ensure**: `wiki_ensure_page(type="entity", title="...")` per entity; `type="concept"` per concept — same `relevance` rule applies
 6. **Cross-ref**: Add `[links](/folder/page.md)` between related pages
 7. **Done**: Server auto-rebuilds metadata on every write
 
