@@ -237,6 +237,11 @@ fn page_id_of(vault: &VaultPaths, file: &Path) -> Option<String> {
 /// exactly one page, retarget it; when the basename is ambiguous (the same
 /// slug in two folders) leave it dangling, so lint reports it instead of us
 /// silently choosing a target.
+///
+/// This repairs the *graph* only (registry, backlinks, lint, index) — the
+/// page's markdown keeps whatever it said. Rewriting files here was
+/// considered and rejected: `rebuild_metadata` runs on every write, so it
+/// would silently edit content and the vault's auto-commit would carry it.
 fn resolve_guessed_folders(registry: &mut Registry) {
     let mut by_slug: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for id in registry.pages.keys() {
