@@ -75,6 +75,26 @@ pub fn capture(
     input: CaptureInput,
     converter: &dyn Converter,
 ) -> Result<Captured, String> {
+    capture_with(vault, date, now_iso, input, None, converter)
+}
+
+/// `capture` with a declared `relevance` (`low|medium|high|critical`) written
+/// into the skeleton source page, so recall can weigh the material later.
+pub fn capture_with(
+    vault: &VaultPaths,
+    date: &str,
+    now_iso: &str,
+    input: CaptureInput,
+    relevance: Option<&str>,
+    converter: &dyn Converter,
+) -> Result<Captured, String> {
+    if let Some(r) = relevance {
+        if !pages::is_relevance(r) {
+            return Err(format!(
+                "invalid relevance '{r}' — expected one of: low, medium, high, critical"
+            ));
+        }
+    }
     let seq = next_seq(vault, date)?;
     let source_id = format!("SRC-{date}-{seq:03}");
     let packet = vault.raw_sources().join(&source_id);
@@ -180,10 +200,13 @@ pub fn capture(
     let page_id = format!("sources/{slug}");
     let page_path = vault.page_path(&page_id);
     if !page_path.exists() {
+        let rel = relevance
+            .map(|r| format!("relevance: {r}\n"))
+            .unwrap_or_default();
         fs::write(
             &page_path,
             format!(
-                "---\ntitle: \"{title}\"\ntype: source\nsource_id: {source_id}\n---\n\n# {title}\n\nSource: {}\n\n## Key claims\n\n\n## Quotes\n\n",
+                "---\ntitle: \"{title}\"\ntype: source\nsource_id: {source_id}\n{rel}---\n\n# {title}\n\nSource: {}\n\n## Key claims\n\n\n## Quotes\n\n",
                 url.as_deref().unwrap_or("-")
             ),
         )
@@ -424,5 +447,42 @@ mod tests {
         )
         .unwrap_err();
         assert!(missing.contains("not found"), "{missing}");
+    }
+
+    #[test]
+    fn capture_records_relevance_in_the_source_page() {
+        let (_t, v) = setup();
+        let c = capture_with(
+            &v,
+            "2026-09-07",
+            "t",
+            CaptureInput::Text {
+                title: Some("Weighed".into()),
+                text: "body".into(),
+            },
+            Some("high"),
+            &DefaultConverter,
+        )
+        .unwrap();
+        let page =
+            fs::read_to_string(v.page_path(&format!("sources/{}", c.source_id.to_lowercase())))
+                .unwrap();
+        assert!(page.contains("relevance: high"), "{page}");
+
+        // Junk is refused before any packet is written.
+        let err = capture_with(
+            &v,
+            "2026-09-07",
+            "t",
+            CaptureInput::Text {
+                title: None,
+                text: "body".into(),
+            },
+            Some("urgent"),
+            &DefaultConverter,
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid relevance"), "{err}");
+        assert_eq!(pending(&v).unwrap().len(), 1);
     }
 }

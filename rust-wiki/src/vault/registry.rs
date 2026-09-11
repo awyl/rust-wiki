@@ -28,6 +28,10 @@ pub struct PageEntry {
     /// OKF `description`: canonical one-sentence preview (empty when unknown).
     #[serde(default)]
     pub description: String,
+    /// Self-declared importance (`relevance:` frontmatter). Recall scales the
+    /// page's score by it; absent = no claim = neutral multiplier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relevance: Option<String>,
     /// For `sources/` pages: ingest state (absent = not applicable).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_id: Option<String>,
@@ -400,6 +404,11 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
                 .scalar("type")
                 .unwrap_or_else(|| super::pages::type_for_folder(folder));
             let description = fm.scalar("description").unwrap_or_default();
+            // Only the declared vocabulary is a claim; anything else is junk
+            // in a hand-edited page and must not read as authoritative.
+            let relevance = fm
+                .scalar("relevance")
+                .filter(|r| super::pages::is_relevance(r));
             let source_id = if folder == "sources" {
                 Some(file_stem.clone())
             } else {
@@ -422,6 +431,7 @@ fn collect_pages(vault: &VaultPaths, dir: &Path, registry: &mut Registry) -> Res
                     links,
                     excerpt: excerpt_of(body, 200),
                     description,
+                    relevance,
                     source_id,
                 },
             );
@@ -505,6 +515,19 @@ mod tests {
         let p = v.page_path(id);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, body).unwrap();
+    }
+
+    #[test]
+    fn relevance_outside_the_vocabulary_is_dropped_on_read() {
+        let (_tmp, v) = setup_vault();
+        write_page(
+            &v,
+            "sources/hand-edited",
+            "---\ntype: retro\ntitle: hand edited\nrelevance: urgent\n---\n\nInsight.\n",
+        );
+        let reg = rebuild_metadata(&v).unwrap();
+        // "urgent" is not a claim recall can weigh — it must not read as one.
+        assert_eq!(reg.pages["sources/hand-edited"].relevance, None);
     }
 
     #[test]
@@ -663,5 +686,26 @@ mod tests {
         assert_eq!(reg.pages["concepts/no-title"].title, "Heading Title");
         assert_eq!(reg.pages["concepts/bare"].title, "bare");
         assert_eq!(reg.pages["concepts/bare"].page_type, "concept");
+    }
+
+    #[test]
+    fn relevance_is_parsed_and_absent_is_none() {
+        let (_tmp, v) = setup_vault();
+        write_page(
+            &v,
+            "sources/critical-note",
+            "---\ntitle: N\ntype: retro\nrelevance: critical\n---\n\nbody\n",
+        );
+        write_page(
+            &v,
+            "concepts/plain",
+            "---\ntitle: P\ntype: concept\n---\n\nbody\n",
+        );
+        let reg = rebuild_metadata(&v).unwrap();
+        assert_eq!(
+            reg.pages["sources/critical-note"].relevance.as_deref(),
+            Some("critical")
+        );
+        assert_eq!(reg.pages["concepts/plain"].relevance, None);
     }
 }

@@ -96,6 +96,7 @@ mod tests {
                     links: vec![],
                     excerpt: String::new(),
                     description: String::new(),
+                    relevance: None,
                     source_id: None,
                 },
             );
@@ -124,6 +125,7 @@ mod tests {
                 links: vec![],
                 excerpt: String::new(),
                 description: String::new(),
+                relevance: None,
                 source_id: None,
             },
         );
@@ -143,6 +145,7 @@ mod tests {
                 links: vec!["concepts/only".into()],
                 excerpt: String::new(),
                 description: String::new(),
+                relevance: None,
                 source_id: None,
             },
         );

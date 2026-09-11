@@ -265,6 +265,7 @@ impl WikiApi for Hub {
         url: Option<&str>,
         file_path: Option<&str>,
         title: Option<&str>,
+        relevance: Option<&str>,
     ) -> ApiResult<CaptureOut> {
         let v = self.target(Some(space), Some(space))?;
         let owned = |s: &str| s.to_string();
@@ -294,11 +295,12 @@ impl WikiApi for Hub {
                 ))
             }
         };
-        let c = vc::capture(
+        let c = vc::capture_with(
             &v,
             &self.today(),
             &self.now_iso(),
             input,
+            relevance,
             self.convert.as_ref(),
         )
         .map_err(|e| ApiError::new("io", e))?;
@@ -347,11 +349,21 @@ impl WikiApi for Hub {
         page_type: &str,
         title: &str,
         content: Option<&str>,
+        relevance: Option<&str>,
     ) -> ApiResult<EnsurePageOut> {
         let v = self.target(Some(space), Some(space))?;
         let gate = Self::gate_mode(&v);
-        let (id, created) = vp::ensure_page(&v, page_type, title, content, gate)
-            .map_err(|e| ApiError::new("invalid_argument", e))?;
+        let (id, created) = vp::ensure_page_with(
+            &v,
+            vp::PageSpec {
+                page_type,
+                title,
+                content,
+                relevance,
+            },
+            gate,
+        )
+        .map_err(|e| ApiError::new("invalid_argument", e))?;
         let _ = registry::rebuild_metadata(&v); // registry must reflect the create/update
         if created {
             self.embed_page(&v, &id);
@@ -463,6 +475,7 @@ impl WikiApi for Hub {
                     page_type: h.page_type,
                     score: h.score,
                     preview: h.preview,
+                    relevance: h.relevance,
                     layer: h.layer,
                 })
                 .collect(),
@@ -534,10 +547,11 @@ impl WikiApi for Hub {
         title: &str,
         body: &str,
         category: Option<&str>,
+        relevance: Option<&str>,
     ) -> ApiResult<RetroOut> {
         let v = self.target(Some(space), Some(space))?;
         let gate = Self::gate_mode(&v);
-        let id = vp::retro(&v, slug, title, body, category, gate)
+        let id = vp::retro(&v, slug, title, body, category, relevance, gate)
             .map_err(|e| ApiError::new("invalid_argument", e))?;
         registry::log_event(
             &v,
@@ -881,7 +895,7 @@ mod tests {
         // scaffold an actual page from the template: registry accepts it
         let filled = t.content.replace("{title}", "Templated Probe");
         let e = api
-            .ensure_page("proj", "concept", "Templated Probe", Some(&filled))
+            .ensure_page("proj", "concept", "Templated Probe", Some(&filled), None)
             .unwrap();
         assert!(e.created);
         let st = api.status("proj").unwrap();
@@ -902,7 +916,7 @@ mod tests {
 
         // capture via fetcher seam
         let c = api
-            .capture_source("proj", None, Some("https://ex.com/a"), None, None)
+            .capture_source("proj", None, Some("https://ex.com/a"), None, None, None)
             .unwrap();
         assert_eq!(c.source_id, "SRC-2026-09-07-001");
 
@@ -919,10 +933,11 @@ mod tests {
             "concept",
             "RAG",
             Some("# RAG\n\nsee [[concepts/retrieval]]\n"),
+            None,
         )
         .unwrap();
         let _ = api
-            .ensure_page("proj", "concept", "Retrieval", None)
+            .ensure_page("proj", "concept", "Retrieval", None, None)
             .unwrap();
         api.write_page(
             "proj",
@@ -938,7 +953,7 @@ mod tests {
         assert!(r.matches.iter().any(|m| m.id == "concepts/retrieval"));
 
         // retro + observe
-        api.retro("proj", "jwt-fix", "JWT fix", "learned\n", None)
+        api.retro("proj", "jwt-fix", "JWT fix", "learned\n", None, None)
             .unwrap();
         api.observe("proj", "Decision", "chose KISS", "high", None, None)
             .unwrap();
@@ -1006,6 +1021,7 @@ mod tests {
                 "concept",
                 "Cache safety",
                 Some("Body about prompt cache prefixes."),
+                None,
             )
             .unwrap();
 
@@ -1067,7 +1083,13 @@ mod tests {
         .unwrap();
 
         let e = api
-            .ensure_page("proj", "concept", "Vector fresh", Some("content body"))
+            .ensure_page(
+                "proj",
+                "concept",
+                "Vector fresh",
+                Some("content body"),
+                None,
+            )
             .unwrap();
         assert!(e.created);
 
@@ -1083,6 +1105,52 @@ mod tests {
         assert!(
             store.pages.contains_key(&e.id),
             "write_page kept the vector fresh"
+        );
+    }
+
+    #[test]
+    fn relevance_flows_through_every_creation_door() {
+        let h = hub();
+        let api: &dyn WikiApi = &h;
+        api.bootstrap("proj", None).unwrap();
+
+        api.capture_source(
+            "proj",
+            Some("captured body"),
+            None,
+            None,
+            Some("Weighed Source"),
+            Some("high"),
+        )
+        .unwrap();
+        api.ensure_page("proj", "concept", "Weighed Concept", None, Some("critical"))
+            .unwrap();
+
+        // Both doors land the claim where recall can read it back.
+        let r = api.recall("proj", "weighed", None).unwrap();
+        let claims: Vec<&str> = r
+            .matches
+            .iter()
+            .filter_map(|m| m.relevance.as_deref())
+            .collect();
+        assert!(claims.contains(&"high"), "{claims:?}");
+        assert!(claims.contains(&"critical"), "{claims:?}");
+
+        // Junk is refused at the door, not stored and ignored later.
+        let err = api
+            .capture_source(
+                "proj",
+                Some("more"),
+                None,
+                None,
+                Some("Junk"),
+                Some("urgent"),
+            )
+            .unwrap_err();
+        assert!(
+            err.message.contains("invalid relevance"),
+            "{:?}",
+            err.message
         );
     }
 }

@@ -106,16 +106,16 @@ The original v1 surface (15) adapted from zosmaai's 14; semantics preserved:
 |---|---|
 | `wiki_use_space` | **new** — pin per-connection space; returns space summary |
 | `wiki_bootstrap` | + required `space` arg; creates the vault dir |
-| `wiki_capture_source` | url/text/file: bytes → markdown via one `Converter` (html/text/pdf), 10 MB cap, 30 s fetch timeout, magic bytes override a lying content-type. `file_path` resolves server-side only |
+| `wiki_capture_source` | url/text/file: bytes → markdown via one `Converter` (html/text/pdf), 10 MB cap, 30 s fetch timeout, magic bytes override a lying content-type. `file_path` resolves server-side only; optional `relevance` declaration |
 | `wiki_ingest` | cooperative batch: returns uningested packets, agent synthesizes (default batch 3, max 5) |
-| `wiki_ensure_page` | unchanged (create-no-overwrite, template fallback) |
+| `wiki_ensure_page` | create-no-overwrite, template fallback; optional `relevance` declaration, written into the frontmatter it generates (a caller-supplied fence must carry its own, never merge) |
 | `wiki_read_page` | **new** — read a `wiki/**` page by ID (remote replaces local file reads) |
 | `wiki_write_page` | **new** — guarded update of an existing `wiki/**` page; metadata rebuild automatic |
 | `wiki_delete_page` | **new** — only irreversible op, so three guards: `allow_delete` config (default false), `confirm` must repeat `id`, and refusal while any page still links to it (`force` overrides). Also drops the page's chunk vectors, or semantic recall would keep admitting a deleted id |
 | `wiki_recall` | layered: active space + `personal`; chunk scoring, weighted fields, PRF, links-first gate (default threshold 50 pages) |
 | `wiki_search` | registry keyword search |
-| `wiki_retro` | atomic insight file + immediate metadata rebuild (wikilink gate ported) |
-| `wiki_observe` | timestamped relevance-rated observation |
+| `wiki_retro` | atomic insight file + immediate metadata rebuild (wikilink gate ported); optional `relevance` declaration (low/medium/high/critical) |
+| `wiki_observe` | timestamped note written as a `retro` page (`sources/obs-<date>-<slug>`) with `relevance` + optional `tags` / `source_context` |
 | `wiki_lint` | orphans / missing / contradictions / gaps; `auto_fix` stubs; report returned in-call |
 | `wiki_status` | counts by type, orphans, gaps, health verdict (from registry), `server_version`, and `allow_delete` (deletion opt-in) |
 | `wiki_rebuild_meta` | full projection rebuild (synchronous) |
@@ -128,12 +128,18 @@ below: `wiki_template`, `wiki_ensure_personal_page`,
 
 **Still unbuilt:** host screens (`/wiki-model`, `/wiki-settings`,
 `/wiki-dashboard` — dropped in the port), OKF Interchange (bundle
-import/export, trust scoring), embeddings staleness skipping.
+import/export, trust scoring).
 
 ## Engine behaviors to port
 
 - Recall: chunk-level scoring, weighted field matching, pseudo-relevance
   feedback, links-first gate above page-count threshold (default 50),
+  relevance-claim multiplier (a declared `relevance:` settles comparable
+  matches; undeclared = 1.0, so plain lexical order is untouched). The claim is
+  validated at every creation door (`wiki_retro`, `wiki_observe`,
+  `wiki_capture_source`, `wiki_ensure_page`) and filtered on read, so a value
+  outside the vocabulary is refused or dropped — never scored as if it meant
+  something,
   vault-source labels.
 - Registry: `meta/registry.json` master catalog; backlinks; index/log are
   projections rebuilt from `wiki/**` + events; ingest state tracked
@@ -238,9 +244,9 @@ extension, and magic bytes (`%PDF-`) override both, because a PDF served as
 
 PDF text uses pure-Rust `pdf-extract` (no external binary to deploy) and is
 tidied: wrapped lines joined, end-of-line hyphenation undone, blank-line runs
-collapsed. `sources/` is shared by `source`, `retro` and `observation` pages, so
-`PAGE_TYPES` names all three and the published tool schema is generated from it
-— a folder must never be inferred from a page type (see
+collapsed. `sources/` is shared by `source` and `retro` pages (a mid-session
+note is a retro too), so `PAGE_TYPES` names both and the published tool schema
+is generated from it — a folder must never be inferred from a page type (see
 `resolve_guessed_folders`).
 
 ## Testing

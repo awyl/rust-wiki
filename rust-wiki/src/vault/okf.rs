@@ -321,6 +321,7 @@ mod tests {
             links,
             excerpt: String::new(),
             description: description.into(),
+            relevance: None,
             source_id: None,
         }
     }

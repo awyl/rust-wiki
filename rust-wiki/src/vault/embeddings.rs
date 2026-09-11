@@ -437,6 +437,7 @@ mod tests {
                     links: vec![],
                     excerpt: excerpt.into(),
                     description: String::new(),
+                    relevance: None,
                     source_id: None,
                 },
             );

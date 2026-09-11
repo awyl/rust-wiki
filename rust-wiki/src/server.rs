@@ -101,14 +101,15 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         "properties": {"space": {"type": "string"}},
         "required": ["space"]
     })),
-    ("wiki_capture_source", "Capture text or a URL as an immutable source packet.", json!({
+    ("wiki_capture_source", "Capture text, a URL, or a server-local file as an immutable source packet. Optional `relevance` records how much the material matters.", json!({
         "type": "object",
         "properties": {
             "space": {"type": "string"},
             "text": {"type": "string"},
             "url": {"type": "string"},
             "file_path": {"type": "string", "description": "Server-local path"},
-            "title": {"type": "string"}
+            "title": {"type": "string"},
+            "relevance": {"type": "string", "enum": ["low", "medium", "high", "critical"], "description": "Optional importance claim written into the source page; recall scales the page's score by it (low 0.9 / medium 1.0 / high 1.1 / critical 1.2)."}
         }
     })),
     ("wiki_ingest", "Get the next batch of uningested sources to synthesize. Pass mark_ingested after synthesizing a source.", json!({
@@ -120,13 +121,14 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
             "mark_ingested": {"type": "array", "items": {"type": "string"}}
         }
     })),
-    ("wiki_ensure_page", "Create a wiki page of the given type (no overwrite).", json!({
+    ("wiki_ensure_page", "Create a wiki page of the given type (no overwrite). Optional `relevance` records how much the page matters.", json!({
         "type": "object",
         "properties": {
             "space": {"type": "string"},
             "type": {"type": "string", "enum": page_type_enum()},
             "title": {"type": "string"},
-            "content": {"type": "string"}
+            "content": {"type": "string"},
+            "relevance": {"type": "string", "enum": ["low", "medium", "high", "critical"], "description": "Optional importance claim; recall scales the page's score by it. Ignored when `content` carries its own frontmatter — declare it in that fence instead."}
         },
         "required": ["type", "title"]
     })),
@@ -218,18 +220,19 @@ fn tools() -> &'static [(&'static str, &'static str, Value)] {
         },
         "required": ["query"]
     })),
-    ("wiki_retro", "Save an atomic insight from a completed task.", json!({
+    ("wiki_retro", "Save an atomic insight from a completed task. Optional `relevance` (low|medium|high|critical) declares importance; recall uses it to settle comparable matches.", json!({
         "type": "object",
         "properties": {
             "space": {"type": "string"},
             "slug": {"type": "string"},
             "title": {"type": "string"},
             "body": {"type": "string"},
-            "category": {"type": "string"}
+            "category": {"type": "string"},
+            "relevance": {"type": "string", "enum": ["low", "medium", "high", "critical"]}
         },
         "required": ["slug", "title", "body"]
     })),
-    ("wiki_observe", "Record a timestamped observation during a session.", json!({
+    ("wiki_observe", "Record a timestamped observation during a session (stored as a retro page in `sources/`).", json!({
         "type": "object",
         "properties": {
             "space": {"type": "string"},
@@ -375,6 +378,7 @@ fn dispatch(
             args["url"].as_str(),
             args["file_path"].as_str(),
             args["title"].as_str(),
+            args["relevance"].as_str(),
         )?)?),
         "wiki_ingest" => {
             let marks: Vec<String> = args["mark_ingested"]
@@ -397,6 +401,7 @@ fn dispatch(
             args["type"].as_str().unwrap_or(""),
             args["title"].as_str().unwrap_or(""),
             args["content"].as_str(),
+            args["relevance"].as_str(),
         )?)?),
         "wiki_read_page" => Ok(serde_json::to_value(
             hub.read_page(need_space!(), args["id"].as_str().unwrap_or(""))?,
@@ -451,6 +456,7 @@ fn dispatch(
             args["type"].as_str().unwrap_or(""),
             args["title"].as_str().unwrap_or(""),
             args["content"].as_str(),
+            None,
         )?)?),
         "wiki_recall" => Ok(serde_json::to_value(hub.recall(
             need_space!(),
@@ -472,6 +478,7 @@ fn dispatch(
             args["title"].as_str().unwrap_or(""),
             args["body"].as_str().unwrap_or(""),
             args["category"].as_str(),
+            args["relevance"].as_str(),
         )?)?),
         "wiki_observe" => Ok(serde_json::to_value(hub.observe(
             need_space!(),
@@ -554,6 +561,23 @@ mod tests {
             assert_eq!(got, want, "{name} type enum");
         }
         assert!(want.contains(&"retro"), "retros must be creatable");
+    }
+
+    /// Both note-writing tools must publish the same relevance vocabulary, and
+    /// the stored value must survive to the recall hit.
+    #[test]
+    fn relevance_is_offered_on_both_note_tools() {
+        let want = ["low", "medium", "high", "critical"];
+        for name in ["wiki_retro", "wiki_observe"] {
+            let (_, _, schema) = tools().iter().find(|(n, _, _)| *n == name).unwrap();
+            let got: Vec<&str> = schema["properties"]["relevance"]["enum"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{name} publishes no relevance enum"))
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            assert_eq!(got, want, "{name} relevance enum");
+        }
     }
 
     #[test]
@@ -650,13 +674,17 @@ mod tests {
         let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"wiki_capture_source","arguments":{"space":"proj","url":"https://ex.com/x"}}})).await;
         assert_eq!(r["result"]["isError"], false);
 
-        let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"wiki_retro","arguments":{"space":"proj","slug":"port-note","title":"Port note","body":"used axum"}}})).await;
+        let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"wiki_retro","arguments":{"space":"proj","slug":"port-note","title":"Port note","body":"used axum","relevance":"critical"}}})).await;
         assert_eq!(r["result"]["isError"], false);
 
         // recall finds retro
         let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"wiki_recall","arguments":{"space":"proj","query":"axum"}}})).await;
         let text = r["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("sources/port-note"));
+        assert!(
+            text.contains("\"relevance\": \"critical\""),
+            "relevance reaches the recall hit: {text}"
+        );
 
         // error surfaces as isError:true
         let r = rpc(&client, &url, json!({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"wiki_read_page","arguments":{"space":"proj","id":"concepts/missing"}}})).await;

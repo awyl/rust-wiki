@@ -41,6 +41,21 @@ const SEMANTIC_WEIGHT: f64 = 0.5;
 fn semantic_score(cos: f32) -> f64 {
     SEMANTIC_WEIGHT * SEMANTIC_SCALE * f64::from(cos.max(0.0))
 }
+/// Score multiplier for a page's self-declared relevance. `critical`/`high`
+/// lift a page, `low` damps it, and absent (or unrecognised) is 1.0 — a page
+/// that claims nothing keeps its exact lexical score, so the semantic
+/// calibration above stays true for it. Bounded on purpose: 1.2 cannot lift a
+/// weak match over a strong one (1.2 x 1.0 < 0.9 x 3.0), it only settles
+/// comparable matches in favour of the page that claims importance.
+fn relevance_multiplier(relevance: Option<&str>) -> f64 {
+    match relevance {
+        Some("critical") => 1.2,
+        Some("high") => 1.1,
+        Some("low") => 0.9,
+        _ => 1.0,
+    }
+}
+
 /// Pseudo-relevance feedback: top docs + their top terms, one round.
 const PRF_DOCS: usize = 3;
 const PRF_TERMS: usize = 4;
@@ -65,6 +80,14 @@ fn field_score(tokens: &[String], field: &str, weight: f64) -> f64 {
     let hits = tokens.iter().filter(|t| hay.contains(t)).count() as f64;
     // saturating: hits/all_query * weight
     (hits / tokens.len() as f64) * weight
+}
+
+fn lexical_score(tokens: &[String], p: &super::registry::PageEntry) -> f64 {
+    let raw = field_score(tokens, &p.title, W_TITLE)
+        + field_score(tokens, &p.id, W_ID)
+        + field_score(tokens, &p.page_type, W_TYPE)
+        + field_score(tokens, &p.excerpt, W_BODY);
+    raw * relevance_multiplier(p.relevance.as_deref())
 }
 
 fn chunks_of(text: &str) -> Vec<String> {
@@ -93,6 +116,8 @@ pub struct RecallHit {
     pub id: String,
     pub title: String,
     pub page_type: String,
+    /// The page's own relevance claim, when it declares one.
+    pub relevance: Option<String>,
     pub score: f64,
     pub preview: String,
     pub layer: Option<String>,
@@ -132,13 +157,7 @@ pub fn recall_registry(
     let mut scored: Vec<(f64, &super::registry::PageEntry)> = registry
         .pages
         .values()
-        .map(|p| {
-            let s = field_score(&tokens, &p.title, W_TITLE)
-                + field_score(&tokens, &p.id, W_ID)
-                + field_score(&tokens, &p.page_type, W_TYPE)
-                + field_score(&tokens, &p.excerpt, W_BODY);
-            (s, p)
-        })
+        .map(|p| (lexical_score(&tokens, p), p))
         .filter(|(s, _)| *s > 0.0)
         .collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -163,13 +182,7 @@ pub fn recall_registry(
             scored = registry
                 .pages
                 .values()
-                .map(|p| {
-                    let s = field_score(&tokens, &p.title, W_TITLE)
-                        + field_score(&tokens, &p.id, W_ID)
-                        + field_score(&tokens, &p.page_type, W_TYPE)
-                        + field_score(&tokens, &p.excerpt, W_BODY);
-                    (s, p)
-                })
+                .map(|p| (lexical_score(&tokens, p), p))
                 .filter(|(s, _)| *s > 0.0)
                 .collect();
             scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -185,6 +198,7 @@ pub fn recall_registry(
             id: p.id.clone(),
             title: p.title.clone(),
             page_type: p.page_type.clone(),
+            relevance: p.relevance.clone(),
             score: score * (1.0 + best.1 * 0.25), // chunk proximity bonus
             preview: best.0.unwrap_or_else(|| p.excerpt.clone()),
             layer: layer.map(|s| s.to_string()),
@@ -294,7 +308,8 @@ pub fn recall_layered_semantic(
                 id: id.clone(),
                 title: p.title.clone(),
                 page_type: p.page_type.clone(),
-                score: semantic_score(sim),
+                relevance: p.relevance.clone(),
+                score: semantic_score(sim) * relevance_multiplier(p.relevance.as_deref()),
                 preview: p.excerpt.clone(),
                 layer: None,
             });
@@ -382,6 +397,58 @@ mod tests {
         assert_eq!(hits.len(), 1, "the semantic candidate was admitted");
         assert_eq!(hits[0].id, "concepts/paraphrase");
         assert!((hits[0].score - semantic_score(0.9)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn relevance_settles_comparable_matches_only() {
+        let (_t, v) = setup();
+        // Identical titles + bodies: the lexical score ties, so only the
+        // relevance claim can order these three.
+        page(
+            &v,
+            "concepts/plain",
+            "---\ntitle: Rank me\ntype: concept\n---\n\nalpha\n",
+        );
+        page(
+            &v,
+            "sources/critical",
+            "---\ntitle: Rank me\ntype: retro\nrelevance: critical\n---\n\nalpha\n",
+        );
+        page(
+            &v,
+            "sources/low",
+            "---\ntitle: Rank me\ntype: retro\nrelevance: low\n---\n\nalpha\n",
+        );
+        let reg = rebuild_metadata(&v).unwrap();
+        let (hits, _) = recall_layered(&v, None, &reg, "rank", 5);
+        let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["sources/critical", "concepts/plain", "sources/low"],
+            "critical lifts, low damps, undeclared stays between"
+        );
+        assert_eq!(hits[0].relevance.as_deref(), Some("critical"));
+        assert_eq!(hits[1].relevance, None);
+    }
+
+    #[test]
+    fn relevance_never_overturns_a_stronger_match() {
+        let (_t, v) = setup();
+        // Title hit on the left vs body-only hit on the right; 1.2 cannot
+        // bridge that gap, 0.9 cannot lose it.
+        page(
+            &v,
+            "sources/low",
+            "---\ntitle: Rank\ntype: retro\nrelevance: low\n---\n\nalpha\n",
+        );
+        page(
+            &v,
+            "concepts/plain",
+            "---\ntitle: Unrelated\ntype: concept\n---\n\nrank alpha\n",
+        );
+        let reg = rebuild_metadata(&v).unwrap();
+        let (hits, _) = recall_layered(&v, None, &reg, "rank", 5);
+        assert_eq!(hits[0].id, "sources/low", "title hit still wins");
     }
 
     #[test]

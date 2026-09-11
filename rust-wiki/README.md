@@ -92,6 +92,14 @@ Then per space, once and after bulk imports, call the
 `meta/embeddings.json`; `wiki_recall` embeds the query and blends cosine
 similarity into lexical scores. No provider → clean no-op message.
 
+Pages may declare `relevance: low|medium|high|critical` — pass it to
+`wiki_retro` / `wiki_observe`, `wiki_capture_source`, or `wiki_ensure_page`.
+Recall scales the page's score by 0.9 / 1.0 / 1.1 / 1.2, which settles documents
+of comparable match strength in favour of the page that claims importance; an
+undeclared page keeps its exact lexical score, so ranking never shifts behind
+your back. A value outside the vocabulary is refused at the write door and
+dropped on read, never scored as if it meant something.
+
 `WIKI_EMBEDDING_URL` is the **full endpoint** (the server posts to it as-is).
 Self-hosted embedding servers can take ~1 minute to answer the first, cold
 call; the client timeout is 180s, then warm calls are milliseconds.

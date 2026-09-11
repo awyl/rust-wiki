@@ -15,11 +15,11 @@ pub const PAGE_TYPES: &[(&str, &str)] = &[
     ("requirement", "requirements"),
     ("skill", "skills"),
     ("case", "cases"),
-    // `sources/` is shared by three types: `source` pages are captured
-    // material, `retro` pages are session insights written by `pages::retro`,
-    // and `observation` pages are mid-session notes written by
-    // `pages::observe`. All three live there, so a folder must never be
-    // guessed from a page type — link to the id a tool returned.
+    // `sources/` is shared by two types: `source` pages are captured material
+    // and `retro` pages are session knowledge — post-task insights written by
+    // `pages::retro` and mid-session notes written by `pages::observe`, which
+    // stores a retro too (one name per artifact). Both live there, so a folder
+    // must never be guessed from a page type — link to the id a tool returned.
     ("source", "sources"),
     ("retro", "sources"),
 ];
@@ -31,6 +31,13 @@ pub fn known_types() -> String {
         .map(|(t, _)| *t)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Relevance a page may declare (`relevance:` frontmatter). Recall scales a
+/// page's score by it (`recall::relevance_multiplier`), so the vocabulary is
+/// validated here on write and interpreted there on read.
+pub fn is_relevance(r: &str) -> bool {
+    matches!(r, "low" | "medium" | "high" | "critical")
 }
 
 pub fn folder_for(page_type: &str) -> Option<&'static str> {
@@ -147,6 +154,15 @@ pub fn template(vault: &VaultPaths, page_type: &str) -> Result<String, String> {
     Ok(raw.replace("{date}", &date))
 }
 
+/// A page to create. `relevance` is the optional `relevance:` declaration
+/// recall scales a page's score by; the plain `ensure_page` leaves it unset.
+pub struct PageSpec<'a> {
+    pub page_type: &'a str,
+    pub title: &'a str,
+    pub content: Option<&'a str>,
+    pub relevance: Option<&'a str>,
+}
+
 /// Create `folder/slug.md` if absent. Returns (id, created).
 pub fn ensure_page(
     vault: &VaultPaths,
@@ -155,6 +171,38 @@ pub fn ensure_page(
     content: Option<&str>,
     gate: GateMode,
 ) -> Result<(String, bool), String> {
+    ensure_page_with(
+        vault,
+        PageSpec {
+            page_type,
+            title,
+            content,
+            relevance: None,
+        },
+        gate,
+    )
+}
+
+/// `ensure_page` for callers that declare a `relevance`
+/// (`low|medium|high|critical`) for the page they are creating.
+pub fn ensure_page_with(
+    vault: &VaultPaths,
+    spec: PageSpec<'_>,
+    gate: GateMode,
+) -> Result<(String, bool), String> {
+    let PageSpec {
+        page_type,
+        title,
+        content,
+        relevance,
+    } = spec;
+    if let Some(r) = relevance {
+        if !is_relevance(r) {
+            return Err(format!(
+                "invalid relevance '{r}' — expected one of: low, medium, high, critical"
+            ));
+        }
+    }
     let Some(folder) = folder_for(page_type) else {
         return Err(format!(
             "unknown page type '{page_type}' — expected one of: {}",
@@ -172,17 +220,32 @@ pub fn ensure_page(
     if path.exists() {
         return Ok((id, false));
     }
-    let body = match content {
-        Some(c) => apply_gate(c, &read_registry(vault)?, gate)?,
-        None => template_body(vault, page_type, title),
+    // A body that already carries a fence keeps it verbatim when it came from
+    // the caller (never nest a second one, and refuse a `relevance` we cannot
+    // merge into someone else's fence). A template body is ours, so a declared
+    // claim goes in as the first field there too.
+    let (from_template, body) = match content {
+        Some(c) => (false, apply_gate(c, &read_registry(vault)?, gate)?),
+        None => (true, template_body(vault, page_type, title)),
     };
-    // If caller content already carries frontmatter, use it verbatim —
-    // never nest a second fence (the hardened scan rejects that).
-    let doc = if body.trim_start().starts_with("---") {
-        body.trim_start().to_string()
-    } else {
-        format!("---\ntitle: \"{title}\"\ntype: {page_type}\n---\n\n{body}")
-    };
+    let fenced = body.trim_start().starts_with("---");
+    let doc =
+        match (relevance, fenced) {
+            (Some(_), true) if !from_template => return Err(
+                "content carries its own frontmatter — declare `relevance:` in that fence instead"
+                    .into(),
+            ),
+            (Some(r), true) => {
+                let t = body.trim_start();
+                let rest = t.split_once('\n').map(|(_, rest)| rest).unwrap_or_default();
+                format!("---\nrelevance: {r}\n{rest}")
+            }
+            (Some(r), false) => {
+                format!("---\ntitle: \"{title}\"\ntype: {page_type}\nrelevance: {r}\n---\n\n{body}")
+            }
+            (None, true) => body.trim_start().to_string(),
+            (None, false) => format!("---\ntitle: \"{title}\"\ntype: {page_type}\n---\n\n{body}"),
+        };
     fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     fs::write(&path, doc).map_err(|e| e.to_string())?;
     rebuild_metadata(vault)?;
@@ -281,6 +344,7 @@ pub fn retro(
     title: &str,
     body: &str,
     category: Option<&str>,
+    relevance: Option<&str>,
     gate: GateMode,
 ) -> Result<String, String> {
     if !valid_slug(slug) {
@@ -292,15 +356,20 @@ pub fn retro(
         return Err(format!("insight '{slug}' already exists"));
     }
     let gated = apply_gate(body, &read_registry(vault)?, gate)?;
-    let cat = category.unwrap_or("");
-    let doc = format!(
-        "---\ntitle: \"{title}\"\ntype: retro\n{cat}\n---\n\n{gated}",
-        cat = if cat.is_empty() {
-            String::new()
-        } else {
-            format!("category: {cat}")
+    let cat = match category {
+        Some(c) => format!("category: {c}\n"),
+        None => String::new(),
+    };
+    let rel = match relevance {
+        Some(r) if is_relevance(r) => format!("relevance: {r}\n"),
+        Some(r) => {
+            return Err(format!(
+                "invalid relevance '{r}' — low|medium|high|critical"
+            ))
         }
-    );
+        None => String::new(),
+    };
+    let doc = format!("---\ntitle: \"{title}\"\ntype: retro\n{cat}{rel}---\n\n{gated}");
     fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     fs::write(&path, doc).map_err(|e| e.to_string())?;
     rebuild_metadata(vault)?;
@@ -317,7 +386,8 @@ pub struct ObserveInput<'a> {
     pub source_context: Option<&'a str>,
 }
 
-/// Timestamped observation: wiki/sources/obs-<date>-<slug>.md
+/// Timestamped mid-session note: wiki/sources/obs-<date>-<slug>.md, stored as
+/// a `retro` page (there is no separate `observation` type) rated by relevance.
 pub fn observe(
     vault: &VaultPaths,
     date: &str,
@@ -331,7 +401,7 @@ pub fn observe(
         tags,
         source_context,
     } = *input;
-    if !matches!(relevance, "low" | "medium" | "high" | "critical") {
+    if !is_relevance(relevance) {
         return Err(format!(
             "invalid relevance '{relevance}' — low|medium|high|critical"
         ));
@@ -347,7 +417,7 @@ pub fn observe(
         return Err(format!("observation '{slug}' already exists"));
     }
     let gated = apply_gate(content, &read_registry(vault)?, gate)?;
-    let mut fm = format!("---\ntitle: \"{title}\"\ntype: observation\nrelevance: {relevance}\n");
+    let mut fm = format!("---\ntitle: \"{title}\"\ntype: retro\nrelevance: {relevance}\n");
     if let Some(t) = tags {
         fm.push_str(&format!("tags: {t}\n"));
     }
@@ -529,12 +599,21 @@ mod tests {
             "JWT revocation fix",
             "learned [[concepts/x]]\n",
             Some("bugfix"),
+            Some("high"),
             GateMode::Off,
         )
         .unwrap();
         assert_eq!(id, "sources/jwt-fix");
-        let dup = retro(&v, "jwt-fix", "dup", "b", None, GateMode::Off).unwrap_err();
+        let text = fs::read_to_string(v.page_path(&id)).unwrap();
+        assert!(text.contains("type: retro\n"), "{text}");
+        assert!(text.contains("relevance: high\n"), "{text}");
+        assert!(text.contains("category: bugfix\n"), "{text}");
+
+        let dup = retro(&v, "jwt-fix", "dup", "b", None, None, GateMode::Off).unwrap_err();
         assert!(dup.contains("already exists"));
+        let bad_rel =
+            retro(&v, "other", "t", "b", None, Some("urgent"), GateMode::Off).unwrap_err();
+        assert!(bad_rel.contains("relevance"), "{bad_rel}");
 
         let obs = observe(
             &v,
@@ -550,6 +629,17 @@ mod tests {
         )
         .unwrap();
         assert!(obs.starts_with("sources/obs-2026-09-07-"));
+        // A mid-session note is a retro: one name per artifact.
+        let text = fs::read_to_string(v.page_path(&obs)).unwrap();
+        assert!(text.contains("type: retro\n"), "{text}");
+        assert!(!text.contains("observation"), "{text}");
+        assert!(text.contains("relevance: high\n"), "{text}");
+        assert!(text.contains("tags: rust wiki\n"), "{text}");
+        assert!(
+            text.contains("source_context: \"rust-wiki build\"\n"),
+            "{text}"
+        );
+
         let bad = observe(
             &v,
             "2026-09-07",
@@ -565,7 +655,60 @@ mod tests {
         .unwrap_err();
         assert!(bad.contains("relevance"));
 
+        // Both writers land as retros carrying their relevance claim.
         let reg = rebuild_metadata(&v).unwrap();
-        assert!(reg.pages.contains_key(&id));
+        let entry = reg.pages.get(&id).unwrap();
+        assert_eq!(entry.page_type, "retro");
+        assert_eq!(entry.relevance.as_deref(), Some("high"));
+        let entry = reg.pages.get(&obs).unwrap();
+        assert_eq!(entry.page_type, "retro");
+        assert_eq!(entry.relevance.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn ensure_page_with_records_relevance() {
+        let (_t, v) = setup();
+        let (id, _) = ensure_page_with(
+            &v,
+            PageSpec {
+                page_type: "concept",
+                title: "Weighed",
+                content: None,
+                relevance: Some("high"),
+            },
+            GateMode::Off,
+        )
+        .unwrap();
+        let reg = rebuild_metadata(&v).unwrap();
+        assert_eq!(reg.pages[&id].relevance.as_deref(), Some("high"));
+
+        // The declared vocabulary is enforced at the write door.
+        let err = ensure_page_with(
+            &v,
+            PageSpec {
+                page_type: "concept",
+                title: "Bad",
+                content: None,
+                relevance: Some("urgent"),
+            },
+            GateMode::Off,
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid relevance"), "{err}");
+
+        // A caller-supplied fence cannot be merged with the argument — refuse
+        // loudly rather than silently drop the claim.
+        let err = ensure_page_with(
+            &v,
+            PageSpec {
+                page_type: "concept",
+                title: "Own Fence",
+                content: Some("---\ntitle: \"Own\"\ntype: concept\n---\n\nbody\n"),
+                relevance: Some("high"),
+            },
+            GateMode::Off,
+        )
+        .unwrap_err();
+        assert!(err.contains("own frontmatter"), "{err}");
     }
 }

@@ -63,7 +63,7 @@ const TEMPLATES: &[(&str, &str)] = &[
     ),
     (
         "source",
-        "---\ntype: source\ntitle: \"{title}\"\nstatus: active\nformat: article\nraw_path: \ningested: {date}\ntopics: []\ncreated: {date}\nupdated: {date}\nconfidence: 0.5\nconcepts: []\n---\n\n# {title}\n\n## Summary\n\n\n## Key Takeaways\n\n\n## Entities Mentioned\n\n\n## Concepts Mentioned\n\n\n## Notable Quotes\n\n\n## Connections\n\n",
+        "---\ntype: source\ntitle: \"{title}\"\nstatus: active\nformat: article\nrelevance: \nraw_path: \ningested: {date}\ntopics: []\ncreated: {date}\nupdated: {date}\nconfidence: 0.5\nconcepts: []\n---\n\n# {title}\n\n## Summary\n\n\n## Key Takeaways\n\n\n## Entities Mentioned\n\n\n## Concepts Mentioned\n\n\n## Notable Quotes\n\n\n## Connections\n\n",
     ),
     (
         "analysis",
@@ -90,7 +90,7 @@ const TEMPLATES: &[(&str, &str)] = &[
         // `pages::retro` for the common case, by `ensure_page` when a caller
         // wants the scaffold.
         "retro",
-        "---\ntype: retro\ntitle: \"{title}\"\ncategory: \nstatus: active\ncreated: {date}\nupdated: {date}\ntags: []\n---\n\n# {title}\n\n## Insight\n\n\n## Evidence\n\n\n## Consequences\n\n\n## Related\n\n",
+        "---\ntype: retro\ntitle: \"{title}\"\ncategory: \nrelevance: \nstatus: active\ncreated: {date}\nupdated: {date}\ntags: []\n---\n\n# {title}\n\n## Insight\n\n\n## Evidence\n\n\n## Consequences\n\n\n## Related\n\n",
     ),
 ];
 

@@ -121,6 +121,9 @@ pub struct RecallMatch {
     pub page_type: String,
     pub score: f64,
     pub preview: String,
+    /// The page's own relevance claim, when it declares one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relevance: Option<String>,
     /// "personal" when hit came from the personal layer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<String>,
@@ -234,6 +237,7 @@ pub trait WikiApi: Send + Sync {
         url: Option<&str>,
         file_path: Option<&str>,
         title: Option<&str>,
+        relevance: Option<&str>,
     ) -> ApiResult<CaptureOut>;
     /// `mark_ingested`: source ids to flip into ingested state (post-synthesis).
     fn ingest(
@@ -249,6 +253,7 @@ pub trait WikiApi: Send + Sync {
         page_type: &str,
         title: &str,
         content: Option<&str>,
+        relevance: Option<&str>,
     ) -> ApiResult<EnsurePageOut>;
     fn read_page(&self, space: &str, id: &str) -> ApiResult<ReadPageOut>;
     fn write_page(&self, space: &str, id: &str, content: &str) -> ApiResult<WritePageOut>;
@@ -277,6 +282,7 @@ pub trait WikiApi: Send + Sync {
         title: &str,
         body: &str,
         category: Option<&str>,
+        relevance: Option<&str>,
     ) -> ApiResult<RetroOut>;
     fn observe(
         &self,
