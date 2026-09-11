@@ -1,6 +1,6 @@
 # rust-wiki — remote zosmaai-style wiki MCP server (design spec)
 
-**Date:** 2026-09-06 · **Status:** shipped — server v0.7.0 (2026-09-11).
+**Date:** 2026-09-06 · **Status:** shipped — server v0.8.0 (2026-09-11).
 Sections below are dated as each landed; the v1 design text is kept for
 context, superseded where a dated section says otherwise.
 **Replaces:** zosmaai/pi-llm-wiki + its 17 vendored skills (full cutover, no coexistence)
@@ -98,7 +98,7 @@ agent+user editable. Writes outside `wiki/**` are rejected.
    active-space hits (priority) + `personal` hits (labeled), dedup by page
    ID — direct port of zosmaai's layered recall, server-side.
 
-## Tool surface (23 tools)
+## Tool surface (24 tools)
 
 The original v1 surface (15) adapted from zosmaai's 14; semantics preserved:
 
@@ -111,12 +111,13 @@ The original v1 surface (15) adapted from zosmaai's 14; semantics preserved:
 | `wiki_ensure_page` | unchanged (create-no-overwrite, template fallback) |
 | `wiki_read_page` | **new** — read a `wiki/**` page by ID (remote replaces local file reads) |
 | `wiki_write_page` | **new** — guarded update of an existing `wiki/**` page; metadata rebuild automatic |
+| `wiki_delete_page` | **new** — only irreversible op, so three guards: `allow_delete` config (default false), `confirm` must repeat `id`, and refusal while any page still links to it (`force` overrides). Also drops the page's chunk vectors, or semantic recall would keep admitting a deleted id |
 | `wiki_recall` | layered: active space + `personal`; chunk scoring, weighted fields, PRF, links-first gate (default threshold 50 pages) |
 | `wiki_search` | registry keyword search |
 | `wiki_retro` | atomic insight file + immediate metadata rebuild (wikilink gate ported) |
 | `wiki_observe` | timestamped relevance-rated observation |
 | `wiki_lint` | orphans / missing / contradictions / gaps; `auto_fix` stubs; report returned in-call |
-| `wiki_status` | counts by type, orphans, gaps, health verdict — from registry |
+| `wiki_status` | counts by type, orphans, gaps, health verdict (from registry), `server_version`, and `allow_delete` (deletion opt-in) |
 | `wiki_rebuild_meta` | full projection rebuild (synchronous) |
 | `wiki_log_event` | append to `events.jsonl` |
 
@@ -184,11 +185,13 @@ the file and overridable per key by env; `config.toml.example` labels each.
 | `recall_links_first_threshold` | `WIKI_RECALL_LINKS_FIRST_THRESHOLD` | `50` |
 | `git_interval_secs` | `WIKI_GIT_INTERVAL_SECS` | `60` (0 = off) |
 | `git_idle_secs` | `WIKI_GIT_IDLE_SECS` | `300` |
+| `allow_delete` | `WIKI_ALLOW_DELETE` | `false` (deletion refused; accepts `1/true/yes/on`) |
 
 No auth (trusted network binding). Diagnostics go to **stderr** — in the
 default stdio transport stdout carries protocol only. The binary logs
 `rust-wiki v<version>` at boot and `wiki_status` reports `server_version`,
-so a deploy is verifiable from the log or a tool call (2026-09-10). Deploy:
+so a deploy is verifiable from the log or a tool call (2026-09-10) without
+trusting the client; `allow_delete` is reported the same way. Deploy:
 same container host as the legacy engine it replaces; agents' MCP configs
 repoint at it. Note: replacing the binary is not enough — the running MCP
 server process must restart to pick it up.
