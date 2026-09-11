@@ -37,7 +37,8 @@ from your stdout, nothing else.
    explicit engines where the tool supports it (`engines: "ddg html,google"`).
    If results are still junk, apply the junk-search rule below.
 5. For each promising result, up to the capture cap:
-   - skip anything already captured — `wiki_search` the title/domain first;
+   - skip anything already captured — `wiki_recall` the title/domain first
+     (semantic, so it catches a differently-titled page on the same topic);
    - skip ads, listicles, and duplicates; prefer in-depth sources;
    - `wiki_capture_source(url=...)` to store the immutable packet.
 6. Synthesize what you captured. This is the point of the run — a captured

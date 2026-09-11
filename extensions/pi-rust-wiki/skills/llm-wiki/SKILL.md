@@ -89,7 +89,7 @@ After completing any meaningful task, call `wiki_retro`:
 - Tool/library gotchas you discovered
 - Patterns worth remembering for future sessions
 
-**Do not wait for the user to ask.** One atomic insight per call.
+**Do not wait for the user to ask.** One atomic insight per call. Search first with `wiki_recall`: if a page already states the insight, `wiki_write_page` that page instead of adding a near-duplicate under a new slug.
 
 ```
 wiki_retro(slug="kebab-case-slug", title="Brief descriptive title", body="Insight in your own words with [links](/folder/page.md)")
@@ -130,6 +130,8 @@ wiki_search(query="broad topic")
 ## Workflows
 
 ### Capture → Ingest → Synthesize
+
+Before capturing: `wiki_recall` the topic or URL. An existing page covering it gets a `wiki_write_page` update, not a second capture.
 
 1. **Capture**: `wiki_capture_source(url="...")` → packet + skeleton
 2. **Ingest**: `wiki_ingest()` → batch with extracted text inline `[remote: no local extracted.md]`

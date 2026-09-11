@@ -39,8 +39,10 @@ distinct findings into multiple calls.
    - The evidence file lists pages earlier runs already wrote. Never restate
      one of those insights under a new slug — if a new fact belongs there,
      `wiki_write_page` an update to that existing page instead.
-   - Before writing a new page, `wiki_search` the vault for the same insight.
-     An existing page covering it gets an update, not a near-duplicate.
+   - Before writing a new page, `wiki_recall` the vault for the same insight.
+     It is semantic, so it finds a page that states the same thing in different
+     words — keyword `wiki_search` does not. An existing page covering it gets
+     a `wiki_write_page` update, never a near-duplicate under a new slug.
 4. Apply (judgment is yours — the evidence is raw material, not orders):
    - New atomic insight → `wiki_retro` (slug, title, body; body carries
      markdown links to related pages).

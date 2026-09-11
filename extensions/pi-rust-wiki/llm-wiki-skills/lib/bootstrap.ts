@@ -20,7 +20,8 @@ function parseUseSpace(raw: string): { exists: boolean; totalPages: number | nul
 }
 
 /**
- * Mechanical bootstrap against rust-wiki: ensure the space exists.
+ * Mechanical bootstrap against rust-wiki: ensure the space exists, and top up
+ * page templates added since it was created.
  * rust-wiki keeps projections fresh on every write — there is no
  * degraded-index state and no wikiRoot (spaces are server-side dirs).
  * Never throws.
@@ -29,12 +30,13 @@ export async function ensureWikiReady(input: BootstrapInput): Promise<BootstrapR
   const opts: McpCallOptions = { url: input.url, token: input.token, timeoutMs: input.timeoutMs };
   try {
     const first = parseUseSpace(await callTool("wiki_use_space", { space: input.wikiName }, opts));
-    if (!first.exists) {
-      await callTool("wiki_bootstrap", { space: input.wikiName }, opts);
-      const second = parseUseSpace(await callTool("wiki_use_space", { space: input.wikiName }, opts));
-      return { space: "created", index: "ok", detail: second.exists ? "space created" : "space created (verify failed)" };
-    }
-    return { space: "ok", index: "ok", detail: "space ok" };
+    // Also tops up page templates added since the vault was created, so this
+    // runs even when the space already exists.
+    await callTool("wiki_bootstrap", { space: input.wikiName }, opts);
+    const second = parseUseSpace(await callTool("wiki_use_space", { space: input.wikiName }, opts));
+    return first.exists
+      ? { space: "ok", index: "ok", detail: "space ok" }
+      : { space: "created", index: "ok", detail: second.exists ? "space created" : "space created (verify failed)" };
   } catch (err) {
     return { space: "error", index: "error", detail: (err as Error).message };
   }

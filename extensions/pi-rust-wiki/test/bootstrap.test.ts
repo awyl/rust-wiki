@@ -43,21 +43,26 @@ function useSpaceOut(exists: boolean) {
 function bootstrapOut() {
   return { content: [{ type: "text", text: JSON.stringify({ created: true, space: "s", root: "/v/s" }) }] };
 }
+function calledTools(fetchMock: any): string[] {
+  return fetchMock.mock.calls
+    .map((c: any) => JSON.parse(c[1].body))
+    .filter((b: any) => b.method === "tools/call")
+    .map((b: any) => b.params.name);
+}
 
 describe("ensureWikiReady (rust-wiki)", () => {
-  it("does nothing when the space exists", async () => {
-    stubFetch([{ body: { result: useSpaceOut(true) } }]);
+  it("tops up templates when the space exists", async () => {
+    const fetchMock = stubFetch([{ body: { result: useSpaceOut(true) } }, { body: { result: bootstrapOut() } }, { body: { result: useSpaceOut(true) } }]);
     const result = await ensureWikiReady({ url: URL_, wikiName: "proj-x" });
     expect(result).toEqual({ space: "ok", index: "ok", detail: "space ok" });
+    expect(calledTools(fetchMock)).toEqual(["wiki_use_space", "wiki_bootstrap", "wiki_use_space"]);
   });
 
   it("bootstraps when the space is missing and verifies it", async () => {
     const fetchMock = stubFetch([{ body: { result: useSpaceOut(false) } }, { body: { result: bootstrapOut() } }, { body: { result: useSpaceOut(true) } }]);
     const result = await ensureWikiReady({ url: URL_, wikiName: "proj-x" });
     expect(result).toEqual({ space: "created", index: "ok", detail: "space created" });
-    const bodies = fetchMock.mock.calls.map((c: any) => JSON.parse(c[1].body));
-    const names = bodies.filter((b: any) => b.method === "tools/call").map((b: any) => b.params.name);
-    expect(names).toEqual(["wiki_use_space", "wiki_bootstrap", "wiki_use_space"]);
+    expect(calledTools(fetchMock)).toEqual(["wiki_use_space", "wiki_bootstrap", "wiki_use_space"]);
   });
 
   it("reports create-verify failure honestly", async () => {
